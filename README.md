@@ -46,9 +46,7 @@ Utilities for detecting and resolving discharge discontinuities ("gaps") at the 
   - `"interpolate"` *(default)* — averages the two limbs' bridge estimates at the breakpoint stage so both limbs meet at an agreed discharge without distorting either curve's shape
   - `"snap_to_lower"` — shifts the upper limb's starting discharge to match the lower limb's end (use when the lower/gauged limb is trusted)
   - `"snap_to_upper"` — shifts the lower limb's ending discharge to match the upper limb's start (use when the upper limb anchor, e.g. a flood-frequency estimate, is trusted)
-- **plot_rc_gaps():** Diagnostic ggplot overlaying the original (dashed) and corrected (solid) curves, coloured by limb. Both curves share the same limb colour scheme; resolved junctions are marked with a filled dot to confirm the corrected limbs meet. Flagged junctions are annotated at the right margin with the junction stage and ΔQ, staggered vertically if close together to prevent overlap.
-
-  > **⚠️ Known issue:** the plot does not always render the corrected lines correctly for all multi-limb configurations. A `warning()` is raised at runtime as a reminder. This will be resolved in a future update.
+- **plot_rc_gaps():** Diagnostic ggplot overlaying the original (dashed) and corrected (solid) curves, coloured by limb. Both curves share the same limb colour scheme; resolved junctions are marked with a filled dot to confirm the corrected limbs meet. Flagged junctions are annotated at the right margin with the junction stage and ΔQ, staggered vertically if close together to prevent overlap. Uses `geom_path` (rather than `geom_line`) so lines are always drawn in stage order — important because gap resolution can make discharge non-monotonic over the first two points of a corrected limb.
 
 **Dependencies:** `ggplot2` (base R otherwise)
 

@@ -412,12 +412,6 @@ plot_rc_gaps <- function(rc_before,
                          discharge_col = "discharge",
                          limb_col      = "limb") {
 
-  warning(
-    "plot_rc_gaps(): the plot does not always render the corrected lines ",
-    "correctly for all multi-limb configurations. This is a known issue ",
-    "and will be resolved in a future update.",
-    call. = FALSE
-  )
 
   # Standardise to fixed column names for ggplot2 aes() without extra deps
   make_plot_df <- function(rc, version_label) {
@@ -441,15 +435,20 @@ plot_rc_gaps <- function(rc_before,
                          limb_col      = limb_col)
 
   p <- ggplot() +
-    # Before: one dashed line per limb, coloured, so inter-limb gaps show
-    geom_line(
+    # geom_path (not geom_line) is used throughout: geom_line sorts by X
+    # (discharge) before connecting, which breaks corrected limbs whose first
+    # point has been raised above the second by the gap-resolution step.
+    # geom_path connects in data order (stage-ascending), which is always safe.
+    #
+    # Before: one dashed path per limb, coloured, so inter-limb gaps show
+    geom_path(
       data      = before_df,
       aes(x = discharge_, y = stage_, colour = limb_f, group = limb_f),
       linetype  = "dashed", linewidth = 0.65
     ) +
     # After: coloured by limb, solid. Junction dots (added later in the flagged
     # block) visually bridge the colour seam where adjacent limbs meet.
-    geom_line(
+    geom_path(
       data      = after_df,
       aes(x = discharge_, y = stage_, colour = limb_f, group = limb_f),
       linetype  = "solid", linewidth = 1.2
