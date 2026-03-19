@@ -412,6 +412,13 @@ plot_rc_gaps <- function(rc_before,
                          discharge_col = "discharge",
                          limb_col      = "limb") {
 
+  warning(
+    "plot_rc_gaps(): the plot does not always render the corrected lines ",
+    "correctly for all multi-limb configurations. This is a known issue ",
+    "and will be resolved in a future update.",
+    call. = FALSE
+  )
+
   # Standardise to fixed column names for ggplot2 aes() without extra deps
   make_plot_df <- function(rc, version_label) {
     rc <- as.data.frame(rc)
