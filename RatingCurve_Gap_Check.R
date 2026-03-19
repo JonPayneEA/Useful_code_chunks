@@ -428,10 +428,6 @@ plot_rc_gaps <- function(rc_before,
   before_df <- make_plot_df(rc_before, "Before")
   after_df  <- make_plot_df(rc_after,  "After")
 
-  # Sort the After data by stage so geom_line connects points in the correct
-  # order when all limbs are merged into one line object.
-  after_df <- after_df[order(after_df$stage_), ]
-
   gaps <- detect_rc_gaps(rc_before,
                          stage_col     = stage_col,
                          discharge_col = discharge_col,
@@ -444,19 +440,19 @@ plot_rc_gaps <- function(rc_before,
       aes(x = discharge_, y = stage_, colour = limb_f, group = limb_f),
       linetype  = "dashed", linewidth = 0.65
     ) +
-    # After: ONE continuous line object (no limb grouping) — eliminates
-    # rendering seams at limb boundaries for any number of limbs
+    # After: coloured by limb, solid. Junction dots (added later in the flagged
+    # block) visually bridge the colour seam where adjacent limbs meet.
     geom_line(
       data      = after_df,
-      aes(x = discharge_, y = stage_),
-      colour    = "grey20", linetype = "solid", linewidth = 1.2
+      aes(x = discharge_, y = stage_, colour = limb_f, group = limb_f),
+      linetype  = "solid", linewidth = 1.2
     ) +
     scale_colour_discrete(name = "Limb") +
     labs(
       title   = "Rating Curve \u2014 Gap Detection & Resolution",
       x       = "Discharge (m\u00b3/s)",
       y       = paste0("Stage (", stage_col, ")"),
-      caption = "Dashed (coloured by limb) = original  |  Solid grey = corrected"
+      caption = "Dashed = original  |  Solid = corrected  |  Dots = resolved junctions"
     ) +
     theme_minimal(base_size = 12) +
     theme(
@@ -493,29 +489,39 @@ plot_rc_gaps <- function(rc_before,
       stringsAsFactors = FALSE
     )
 
+    # Junction dots: one row per resolved junction (first match per stage is
+    # enough — both adjacent limbs share the same Q after resolution)
+    jct_pts <- after_df[after_df$stage_ %in% flagged$stage_break, ]
+    jct_pts <- jct_pts[!duplicated(jct_pts$stage_), ]
+
     p <- p +
       # Dotted line across the full panel at each junction stage
+      # (inherit.aes omitted: geom_hline ignores it in ggplot2 >= 3.5)
       geom_hline(
-        data        = flagged,
+        data      = flagged,
         aes(yintercept = stage_break),
-        colour      = "firebrick", linetype = "dotted",
-        linewidth   = 0.5, inherit.aes = FALSE
+        colour    = "firebrick", linetype = "dotted", linewidth = 0.5
+      ) +
+      # Small filled dot at each resolved junction — bridges the colour seam
+      # where adjacent coloured limb lines meet
+      geom_point(
+        data   = jct_pts,
+        aes(x = discharge_, y = stage_),
+        colour = "grey20", size = 2.5, shape = 16
       ) +
       # Segment from right edge of panel down to the actual junction stage
       geom_segment(
-        data        = label_df,
+        data     = label_df,
         aes(x = x, xend = x, y = y, yend = y_junction),
-        colour      = "firebrick", linewidth = 0.4,
-        linetype    = "solid", inherit.aes = FALSE
+        colour   = "firebrick", linewidth = 0.4, linetype = "solid"
       ) +
-      # Label pinned to the right margin, left-justified off the segment end
+      # Label pinned to the right margin
       geom_label(
-        data        = label_df,
+        data       = label_df,
         aes(x = x, y = y, label = label),
-        hjust       = 1, vjust = 0.5,
-        colour      = "firebrick", size = 3,
-        label.size  = 0.2, fill = "white", alpha = 0.9,
-        inherit.aes = FALSE
+        hjust      = 1, vjust = 0.5,
+        colour     = "firebrick", size = 3,
+        label.size = 0.2, fill = "white", alpha = 0.9
       )
   }
 
