@@ -353,7 +353,14 @@ resolve_rc_gaps <- function(rc,
 #'
 #' @description
 #' Produces a ggplot2 figure overlaying the original (dashed) and corrected
-#' (solid) rating curves, coloured by limb. Works for any number of limbs.
+#' (solid) rating curves. Works for any number of limbs.
+#'
+#' The original (Before) curve is drawn as one dashed line per limb, coloured
+#' by limb ID, so gaps between independently-fitted segments are visible.
+#' The corrected (After) curve is drawn as a single continuous grey line —
+#' using one line object rather than one per limb — which guarantees there are
+#' no rendering seams at limb boundaries regardless of how many limbs exist.
+#'
 #' Flagged gap junctions are marked with a dotted horizontal line; labels are
 #' pinned to the right margin and staggered vertically so they never overlap
 #' the curves or each other. A short segment connects each label back to its
@@ -418,31 +425,38 @@ plot_rc_gaps <- function(rc_before,
     )
   }
 
-  combined         <- rbind(make_plot_df(rc_before, "Before"),
-                            make_plot_df(rc_after,  "After"))
-  combined$version <- factor(combined$version, levels = c("Before", "After"))
+  before_df <- make_plot_df(rc_before, "Before")
+  after_df  <- make_plot_df(rc_after,  "After")
+
+  # Sort the After data by stage so geom_line connects points in the correct
+  # order when all limbs are merged into one line object.
+  after_df <- after_df[order(after_df$stage_), ]
 
   gaps <- detect_rc_gaps(rc_before,
                          stage_col     = stage_col,
                          discharge_col = discharge_col,
                          limb_col      = limb_col)
 
-  p <- ggplot(combined,
-              aes(x = discharge_, y = stage_,
-                  colour    = limb_f,
-                  linetype  = version,
-                  linewidth = version)) +
-    geom_line() +
-    scale_linetype_manual(values = c("Before" = "dashed", "After" = "solid"),
-                          name   = NULL) +
-    scale_linewidth_manual(values = c("Before" = 0.6,     "After" = 1.2),
-                           name   = NULL) +
+  p <- ggplot() +
+    # Before: one dashed line per limb, coloured, so inter-limb gaps show
+    geom_line(
+      data      = before_df,
+      aes(x = discharge_, y = stage_, colour = limb_f, group = limb_f),
+      linetype  = "dashed", linewidth = 0.65
+    ) +
+    # After: ONE continuous line object (no limb grouping) — eliminates
+    # rendering seams at limb boundaries for any number of limbs
+    geom_line(
+      data      = after_df,
+      aes(x = discharge_, y = stage_),
+      colour    = "grey20", linetype = "solid", linewidth = 1.2
+    ) +
+    scale_colour_discrete(name = "Limb") +
     labs(
       title   = "Rating Curve \u2014 Gap Detection & Resolution",
       x       = "Discharge (m\u00b3/s)",
       y       = paste0("Stage (", stage_col, ")"),
-      colour  = "Limb",
-      caption = "Dashed = original  |  Solid = corrected"
+      caption = "Dashed (coloured by limb) = original  |  Solid grey = corrected"
     ) +
     theme_minimal(base_size = 12) +
     theme(
@@ -457,8 +471,8 @@ plot_rc_gaps <- function(rc_before,
     # ── Label positioning ────────────────────────────────────────────────────
     # Anchor all labels to the right margin so they never overlay the curves.
     # Stagger vertically when two junctions are too close together.
-    q_max       <- max(combined$discharge_)
-    stage_range <- diff(range(combined$stage_))
+    q_max       <- max(after_df$discharge_, before_df$discharge_)
+    stage_range <- diff(range(after_df$stage_, before_df$stage_))
     min_sep     <- stage_range * 0.07   # minimum vertical gap between labels
 
     # Sort by stage so the stagger pass moves upward through the plot
