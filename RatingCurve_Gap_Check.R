@@ -86,6 +86,12 @@ library(ggplot2)
 #' @param step Numeric. Stage increment for generating evaluation points within
 #'   each limb (default \code{0.01}). The upper bound of each limb is always
 #'   included regardless of rounding.
+#' @param max_stage Numeric or \code{NULL}. Upper bound applied to every limb
+#'   before generating stage sequences. Useful when the last limb uses a
+#'   sentinel value such as \code{999} to indicate an open-ended upper limit.
+#'   When \code{NULL} (default) the raw \code{upper_col} values are used
+#'   unchanged. A warning is issued for any limb whose upper level exceeds
+#'   \code{max_stage}.
 #' @param lower_col,upper_col Character. Column names for the lower and upper
 #'   stage limits of each limb (defaults \code{"lower_level"} and
 #'   \code{"upper_level"}).
@@ -139,6 +145,7 @@ library(ggplot2)
 #' p <- plot_rc_gaps(rc, rc_fixed)
 expand_rating_table <- function(rating,
                                 step         = 0.01,
+                                max_stage    = NULL,
                                 lower_col    = "lower_level",
                                 upper_col    = "upper_level",
                                 c_col        = "C",
@@ -165,6 +172,14 @@ expand_rating_table <- function(rating,
     C  <- rating[[c_col]][i]
     A  <- rating[[a_col]][i]
     B  <- rating[[b_col]][i]
+
+    # Cap open-ended sentinel upper levels
+    if (!is.null(max_stage) && hi > max_stage) {
+      warning(sprintf(
+        "expand_rating_table(): limb %d upper level (%.4g) exceeds max_stage (%.4g); capped.",
+        i, hi, max_stage))
+      hi <- max_stage
+    }
 
     h <- seq(lo, hi, by = step)
     # Ensure the upper bound is always present regardless of step rounding
@@ -604,7 +619,7 @@ plot_rc_gaps <- function(rc_before,
     flagged <- flagged[order(flagged$stage_break), ]
 
     label_y <- flagged$stage_break
-    for (i in seq(2L, length(label_y))) {
+    for (i in seq_along(label_y)[-1L]) {
       if (label_y[i] - label_y[i - 1L] < min_sep) {
         label_y[i] <- label_y[i - 1L] + min_sep
       }
