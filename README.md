@@ -38,4 +38,20 @@ Produces two separate, vertically stacked plots combined with `patchwork`:
 
 ---
 
+### RatingCurve_Gap_Check.R
+Utilities for detecting and resolving discharge discontinuities ("gaps") at the junctions between independently-fitted rating curve limbs. When limbs are fitted separately their endpoints rarely align exactly, producing visual gaps and hydraulic inconsistencies.
+
+- **detect_rc_gaps():** Scans every limb junction and reports the absolute and relative discharge gap; flags junctions that exceed configurable tolerances. Accepts an explicit limb-ID column or auto-detects limbs from monotonicity breaks in discharge.
+- **resolve_rc_gaps():** Closes flagged gaps using one of three strategies:
+  - `"interpolate"` *(default)* — averages the two limbs' bridge estimates at the breakpoint stage so both limbs meet at an agreed discharge without distorting either curve's shape
+  - `"snap_to_lower"` — shifts the upper limb's starting discharge to match the lower limb's end (use when the lower/gauged limb is trusted)
+  - `"snap_to_upper"` — shifts the lower limb's ending discharge to match the upper limb's start (use when the upper limb anchor, e.g. a flood-frequency estimate, is trusted)
+- **plot_rc_gaps():** Diagnostic ggplot overlaying the original (dashed) and corrected (solid) curves, coloured by limb. Both curves share the same limb colour scheme; resolved junctions are marked with a filled dot to confirm the corrected limbs meet. Flagged junctions are annotated at the right margin with the junction stage and ΔQ, staggered vertically if close together to prevent overlap.
+
+  > **⚠️ Known issue:** the plot does not always render the corrected lines correctly for all multi-limb configurations. A `warning()` is raised at runtime as a reminder. This will be resolved in a future update.
+
+**Dependencies:** `ggplot2` (base R otherwise)
+
+---
+
 Feel free to contribute and add more snippets or improve the existing ones!
