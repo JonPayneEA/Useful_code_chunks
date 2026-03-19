@@ -7,9 +7,10 @@
 # a visible gap in plots and a hydraulic inconsistency in the table.
 #
 # Functions exported:
-#   detect_rc_gaps()   -- report gaps at every limb junction
-#   resolve_rc_gaps()  -- close gaps by one of three strategies
-#   plot_rc_gaps()     -- before/after diagnostic plot
+#   expand_rating_table() -- evaluate Q = C(h-a)^b from a rating equation table
+#   detect_rc_gaps()      -- report gaps at every limb junction
+#   resolve_rc_gaps()     -- close gaps by one of three strategies
+#   plot_rc_gaps()        -- before/after diagnostic plot
 #
 # Dependencies: ggplot2 (base R otherwise)
 
@@ -58,6 +59,128 @@ library(ggplot2)
     limb[i] <- k
   }
   limb
+}
+
+
+# ---------------------------------------------------------------------------
+# expand_rating_table()
+# ---------------------------------------------------------------------------
+
+#' Expand a rating equation table into a stage–discharge data frame
+#'
+#' @description
+#' Evaluates the rating equation \eqn{Q = C \cdot (h - a)^b} for every limb
+#' defined in a rating table and returns a single stage–discharge data frame
+#' ready for use with \code{\link{detect_rc_gaps}},
+#' \code{\link{resolve_rc_gaps}}, and \code{\link{plot_rc_gaps}}.
+#'
+#' Each limb is defined by a row in \code{rating} containing a lower and upper
+#' stage bound, the three equation parameters (C, A, B), and an optional
+#' \emph{doubtful} flag (commonly set for upper limbs derived from flood-
+#' frequency estimates rather than direct gauging).
+#'
+#' @param rating A data frame with one row per limb. Must contain the columns
+#'   named by \code{lower_col}, \code{upper_col}, \code{c_col}, \code{a_col},
+#'   and \code{b_col}. An optional doubtful flag column named by
+#'   \code{doubtful_col} is carried through to the output if present.
+#' @param step Numeric. Stage increment for generating evaluation points within
+#'   each limb (default \code{0.01}). The upper bound of each limb is always
+#'   included regardless of rounding.
+#' @param lower_col,upper_col Character. Column names for the lower and upper
+#'   stage limits of each limb (defaults \code{"lower_level"} and
+#'   \code{"upper_level"}).
+#' @param c_col,a_col,b_col Character. Column names for the equation parameters
+#'   C (multiplier), A (offset / zero-flow level), and B (exponent). Defaults
+#'   \code{"C"}, \code{"A"}, \code{"B"}.
+#' @param doubtful_col Character. Column name for the doubtful flag
+#'   (default \code{"doubtful"}). Ignored if the column is absent from
+#'   \code{rating}.
+#'
+#' @return A data frame with columns:
+#'   \describe{
+#'     \item{stage}{Stage values at which Q was evaluated.}
+#'     \item{discharge}{Computed discharge (m³/s). Stages at or below the
+#'       zero-flow offset \code{A} are returned as \code{0}.}
+#'     \item{limb}{Integer limb ID (row index of \code{rating}).}
+#'     \item{doubtful}{Logical flag carried from \code{rating} (only present
+#'       when \code{doubtful_col} exists in \code{rating}).}
+#'   }
+#'
+#' @details
+#' The breakpoint stage shared between two adjacent limbs (the upper limit of
+#' limb \eqn{n} equals the lower limit of limb \eqn{n+1}) is included in
+#' \emph{both} limbs. This lets \code{detect_rc_gaps()} compare the end
+#' discharge of the lower limb against the start discharge of the upper limb
+#' at the exact same stage, which is where gaps are most visible.
+#'
+#' Because each limb is fitted independently, the discharge values at a shared
+#' breakpoint stage will generally differ — that difference is the gap that
+#' \code{detect_rc_gaps()} measures and \code{resolve_rc_gaps()} corrects.
+#'
+#' @seealso \code{\link{detect_rc_gaps}}, \code{\link{resolve_rc_gaps}},
+#'   \code{\link{plot_rc_gaps}}
+#'
+#' @examples
+#' # Three-limb rating with independent C/A/B parameters.
+#' # The end discharge of each limb will not match the start of the next,
+#' # producing gaps that detect_rc_gaps() can flag.
+#' rating <- data.frame(
+#'   lower_level = c(0.0, 1.2, 2.5),
+#'   upper_level = c(1.2, 2.5, 4.0),
+#'   C           = c(2.5, 4.1, 7.8),
+#'   A           = c(0.0, 0.0, 0.0),
+#'   B           = c(1.50, 1.70, 2.00),
+#'   doubtful    = c(FALSE, FALSE, TRUE)
+#' )
+#' rc <- expand_rating_table(rating)
+#'
+#' gaps    <- detect_rc_gaps(rc)
+#' rc_fixed <- resolve_rc_gaps(rc)
+#' p <- plot_rc_gaps(rc, rc_fixed)
+expand_rating_table <- function(rating,
+                                step         = 0.01,
+                                lower_col    = "lower_level",
+                                upper_col    = "upper_level",
+                                c_col        = "C",
+                                a_col        = "A",
+                                b_col        = "B",
+                                doubtful_col = "doubtful") {
+
+  rating <- as.data.frame(rating)
+
+  required <- c(lower_col, upper_col, c_col, a_col, b_col)
+  missing  <- setdiff(required, names(rating))
+  if (length(missing)) {
+    stop("expand_rating_table(): missing column(s): ",
+         paste(missing, collapse = ", "))
+  }
+
+  has_doubtful <- doubtful_col %in% names(rating)
+
+  rows <- vector("list", nrow(rating))
+
+  for (i in seq_len(nrow(rating))) {
+    lo <- rating[[lower_col]][i]
+    hi <- rating[[upper_col]][i]
+    C  <- rating[[c_col]][i]
+    A  <- rating[[a_col]][i]
+    B  <- rating[[b_col]][i]
+
+    h <- seq(lo, hi, by = step)
+    # Ensure the upper bound is always present regardless of step rounding
+    if (abs(tail(h, 1L) - hi) > .Machine$double.eps * 100) h <- c(h, hi)
+
+    depth <- h - A
+    Q     <- ifelse(depth <= 0, 0, C * depth^B)
+
+    df <- data.frame(stage = h, discharge = Q, limb = i)
+
+    if (has_doubtful) df$doubtful <- rating[[doubtful_col]][i]
+
+    rows[[i]] <- df
+  }
+
+  do.call(rbind, rows)
 }
 
 
@@ -542,48 +665,41 @@ plot_rc_gaps <- function(rc_before,
 
 if (FALSE) {
 
-  # Three-limb rating curve with two deliberate gaps
-  limb1 <- data.frame(
-    stage     = seq(8.0, 10.0, by = 0.1),
-    discharge = 12 * (seq(8.0, 10.0, by = 0.1) - 8.0)^1.65,
-    limb      = 1L
+  # ── Step 1: define the rating table (one row per limb) ──────────────────
+  # Columns match the standard form Q = C * (h - A)^B.
+  # Each limb is fitted independently so the end discharge of one limb
+  # will generally differ from the start discharge of the next — that
+  # difference is the gap that the utilities below detect and resolve.
+  rating <- data.frame(
+    lower_level = c(0.0, 1.2, 2.5),
+    upper_level = c(1.2, 2.5, 4.0),
+    C           = c(2.5, 4.1, 7.8),   # multiplier
+    A           = c(0.0, 0.0, 0.0),   # zero-flow offset (gauge datum)
+    B           = c(1.50, 1.70, 2.00), # exponent
+    doubtful    = c(FALSE, FALSE, TRUE) # flag upper limb as doubtful
   )
 
-  # Gap 1: limb 2 starts 5 m³/s below where limb 1 ends
-  limb2 <- data.frame(
-    stage     = seq(10.0, 11.2, by = 0.1),
-    discharge = (tail(limb1$discharge, 1) - 5) +
-                30 * (seq(10.0, 11.2, by = 0.1) - 10.0)^1.4,
-    limb      = 2L
-  )
+  # ── Step 2: expand to stage–discharge rows ───────────────────────────────
+  rc_raw <- expand_rating_table(rating, step = 0.01)
 
-  # Gap 2: limb 3 starts 8 m³/s above where limb 2 ends
-  limb3 <- data.frame(
-    stage     = seq(11.2, 12.0, by = 0.1),
-    discharge = (tail(limb2$discharge, 1) + 8) +
-                60 * (seq(11.2, 12.0, by = 0.1) - 11.2)^1.3,
-    limb      = 3L
-  )
-
-  rc_raw <- rbind(limb1, limb2, limb3)
-
-  # 1. Inspect gaps
+  # ── Step 3: inspect gaps ─────────────────────────────────────────────────
   gap_report <- detect_rc_gaps(rc_raw)
   print(gap_report)
 
-  # 2a. Fix by averaging both limb endpoints at each junction
+  # ── Step 4: resolve gaps ─────────────────────────────────────────────────
+  # 4a. Average both limb endpoints at each junction (default)
   rc_interp <- resolve_rc_gaps(rc_raw, method = "interpolate")
 
-  # 2b. Fix by snapping upper limb to lower limb (lower limb trusted)
+  # 4b. Snap upper limb start to lower limb end (lower limb is trusted)
   rc_snap_lo <- resolve_rc_gaps(rc_raw, method = "snap_to_lower")
 
-  # 2c. Fix by snapping lower limb to upper limb (upper anchor trusted)
+  # 4c. Snap lower limb end to upper limb start (upper anchor is trusted,
+  #     e.g. a flood-frequency estimate for the doubtful upper limb)
   rc_snap_hi <- resolve_rc_gaps(rc_raw, method = "snap_to_upper")
 
-  # 3. Visualise before vs after
+  # ── Step 5: visualise before vs after ───────────────────────────────────
   plot_rc_gaps(rc_raw, rc_interp)
 
-  # Save the plot
   # p <- plot_rc_gaps(rc_raw, rc_interp)
   # ggplot2::ggsave("rc_gap_check.png", p, width = 9, height = 6, dpi = 150)
 }
