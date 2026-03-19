@@ -353,8 +353,11 @@ resolve_rc_gaps <- function(rc,
 #'
 #' @description
 #' Produces a ggplot2 figure overlaying the original (dashed) and corrected
-#' (solid) rating curves, coloured by limb. Flagged gap junctions are marked
-#' with a dotted horizontal line and a label showing the stage and \eqn{\Delta Q}.
+#' (solid) rating curves, coloured by limb. Works for any number of limbs.
+#' Flagged gap junctions are marked with a dotted horizontal line; labels are
+#' pinned to the right margin and staggered vertically so they never overlap
+#' the curves or each other. A short segment connects each label back to its
+#' junction stage line.
 #'
 #' @param rc_before Data frame. The original, uncorrected rating curve passed
 #'   to \code{\link{resolve_rc_gaps}}.
@@ -384,7 +387,13 @@ resolve_rc_gaps <- function(rc,
 #'               30 * (seq(10.0, 11.5, by = 0.2) - 10.0)^1.4,
 #'   limb      = 2L
 #' )
-#' rc_raw   <- rbind(limb1, limb2)
+#' limb3 <- data.frame(
+#'   stage     = seq(11.5, 12.5, by = 0.2),
+#'   discharge = (tail(limb2$discharge, 1) + 8) +
+#'               60 * (seq(11.5, 12.5, by = 0.2) - 11.5)^1.3,
+#'   limb      = 3L
+#' )
+#' rc_raw   <- rbind(limb1, limb2, limb3)
 #' rc_fixed <- resolve_rc_gaps(rc_raw)
 #'
 #' p <- plot_rc_gaps(rc_raw, rc_fixed)
@@ -420,8 +429,8 @@ plot_rc_gaps <- function(rc_before,
 
   p <- ggplot(combined,
               aes(x = discharge_, y = stage_,
-                  colour   = limb_f,
-                  linetype = version,
+                  colour    = limb_f,
+                  linetype  = version,
                   linewidth = version)) +
     geom_line() +
     scale_linetype_manual(values = c("Before" = "dashed", "After" = "solid"),
@@ -430,7 +439,7 @@ plot_rc_gaps <- function(rc_before,
                            name   = NULL) +
     labs(
       title   = "Rating Curve \u2014 Gap Detection & Resolution",
-      x       = paste0("Discharge (m\u00b3/s)"),
+      x       = "Discharge (m\u00b3/s)",
       y       = paste0("Stage (", stage_col, ")"),
       colour  = "Limb",
       caption = "Dashed = original  |  Solid = corrected"
@@ -443,25 +452,55 @@ plot_rc_gaps <- function(rc_before,
     )
 
   if (!is.null(gaps) && any(gaps$gap_flagged)) {
-    flagged      <- gaps[gaps$gap_flagged, ]
-    label_x      <- (flagged$q_lower_end + flagged$q_upper_start) / 2
-    label_text   <- sprintf("Gap\n\u0394Q = %.1f m\u00b3/s", flagged$gap_abs)
+    flagged <- gaps[gaps$gap_flagged, ]
+
+    # ── Label positioning ────────────────────────────────────────────────────
+    # Anchor all labels to the right margin so they never overlay the curves.
+    # Stagger vertically when two junctions are too close together.
+    q_max       <- max(combined$discharge_)
+    stage_range <- diff(range(combined$stage_))
+    min_sep     <- stage_range * 0.07   # minimum vertical gap between labels
+
+    # Sort by stage so the stagger pass moves upward through the plot
+    flagged <- flagged[order(flagged$stage_break), ]
+
+    label_y <- flagged$stage_break
+    for (i in seq(2L, length(label_y))) {
+      if (label_y[i] - label_y[i - 1L] < min_sep) {
+        label_y[i] <- label_y[i - 1L] + min_sep
+      }
+    }
+
+    label_df <- data.frame(
+      x          = q_max,
+      y          = label_y,
+      y_junction = flagged$stage_break,
+      label      = sprintf("Gap %d  \u0394Q = %.1f m\u00b3/s", flagged$junction, flagged$gap_abs),
+      stringsAsFactors = FALSE
+    )
 
     p <- p +
+      # Dotted line across the full panel at each junction stage
       geom_hline(
         data        = flagged,
         aes(yintercept = stage_break),
         colour      = "firebrick", linetype = "dotted",
         linewidth   = 0.5, inherit.aes = FALSE
       ) +
+      # Segment from right edge of panel down to the actual junction stage
+      geom_segment(
+        data        = label_df,
+        aes(x = x, xend = x, y = y, yend = y_junction),
+        colour      = "firebrick", linewidth = 0.4,
+        linetype    = "solid", inherit.aes = FALSE
+      ) +
+      # Label pinned to the right margin, left-justified off the segment end
       geom_label(
-        data        = data.frame(x = label_x,
-                                 y = flagged$stage_break,
-                                 label = label_text,
-                                 stringsAsFactors = FALSE),
+        data        = label_df,
         aes(x = x, y = y, label = label),
+        hjust       = 1, vjust = 0.5,
         colour      = "firebrick", size = 3,
-        label.size  = 0.2, fill = "white",
+        label.size  = 0.2, fill = "white", alpha = 0.9,
         inherit.aes = FALSE
       )
   }
