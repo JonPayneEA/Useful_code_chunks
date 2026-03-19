@@ -513,6 +513,10 @@ resolve_rc_gaps <- function(rc,
 #'   Default \code{"discharge"}.
 #' @param limb_col Character or \code{NULL}. Name of the limb-ID column.
 #'   Defaults to \code{"limb"}; a single limb is assumed if the column is absent.
+#' @param doubtful_col Character. Name of the doubtful flag column
+#'   (default \code{"doubtful"}). Rows where this column is \code{TRUE} are
+#'   excluded from both the Before and After curves. Ignored if the column is
+#'   absent from \code{rc_before} / \code{rc_after}.
 #'
 #' @return A \code{ggplot} object (printed as a side-effect). Returned
 #'   invisibly so it can be further modified or saved with
@@ -548,13 +552,16 @@ plot_rc_gaps <- function(rc_before,
                          rc_after,
                          stage_col     = "stage",
                          discharge_col = "discharge",
-                         limb_col      = "limb") {
+                         limb_col      = "limb",
+                         doubtful_col  = "doubtful") {
 
 
-  # Standardise to fixed column names for ggplot2 aes() without extra deps
+  # Standardise to fixed column names for ggplot2 aes() without extra deps.
+  # Rows whose doubtful flag is TRUE are removed before plotting.
   make_plot_df <- function(rc, version_label) {
     rc <- as.data.frame(rc)
     if (!limb_col %in% names(rc)) rc[[limb_col]] <- 1L
+    if (doubtful_col %in% names(rc)) rc <- rc[!rc[[doubtful_col]], ]
     data.frame(
       stage_     = rc[[stage_col]],
       discharge_ = rc[[discharge_col]],
@@ -596,7 +603,7 @@ plot_rc_gaps <- function(rc_before,
       title   = "Rating Curve \u2014 Gap Detection & Resolution",
       x       = "Discharge (m\u00b3/s)",
       y       = paste0("Stage (", stage_col, ")"),
-      caption = "Dashed = original  |  Solid = corrected  |  Dots = resolved junctions"
+      caption = "Dashed = original  |  Solid = corrected  |  Dots = resolved junctions  |  Doubtful limbs hidden"
     ) +
     theme_minimal(base_size = 12) +
     theme(
