@@ -48,7 +48,7 @@ Utilities for detecting and resolving discharge discontinuities ("gaps") at the 
   - `"snap_to_upper"` — shifts the lower limb's ending discharge to match the upper limb's start (use when the upper limb anchor, e.g. a flood-frequency estimate, is trusted)
 - **plot_rc_gaps():** Diagnostic ggplot overlaying the original (dashed) and corrected (solid) curves, with flagged gap junctions annotated by stage and ΔQ
 
-**Dependencies:** `dplyr`, `ggplot2`
+**Dependencies:** `ggplot2` (base R otherwise)
 
 ---
 
