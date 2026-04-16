@@ -23,6 +23,9 @@ Produces a single combined plot with a river cross-section and a rating curve ov
 - Rating curve (Manning-style power law: `Q = a·(H − H₀)^b`) scaled onto the channel distance axis and overlaid as an orange line, colour-coded above/below bankfull
 - Gauged observation points plotted on the rating curve
 - Secondary x-axis labels discharge in m³/s; primary x-axis shows distance across channel in metres
+- **make_water_poly(wl, xs):** Builds a closed polygon representing the water surface at a given water level `wl` from cross-section coordinates `xs`; clips to wetted nodes and caps at the water surface elevation
+- **q_to_dist(q):** Linearly scales a discharge value onto the channel distance axis for the dual-axis overlay
+- **dist_to_q(d):** Inverse of `q_to_dist()`; used by `sec_axis` to label the secondary x-axis in discharge units
 
 **Dependencies:** `ggplot2`, `dplyr`, `scales`
 
@@ -33,6 +36,7 @@ Produces two separate, vertically stacked plots combined with `patchwork`:
 
 - **Plot A – Cross-Section:** Channel bed with water-fill polygons and dashed water surface lines at three flow stages, with inline stage labels
 - **Plot B – Rating Curve:** Stage–discharge curve with above-bankfull zone shading, colour change at bankfull, and simulated gauged observation points
+- **make_water_poly(wl, xs):** Builds a closed polygon representing the water surface at a given water level `wl` from cross-section coordinates `xs`; used internally to fill the channel at each flow stage
 
 **Dependencies:** `ggplot2`, `patchwork`, `dplyr`
 
