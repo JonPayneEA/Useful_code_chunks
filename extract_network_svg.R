@@ -428,10 +428,15 @@ downstream_of <- function(g, gauge) {
   setdiff(names(subcomponent(g, v, mode = "out")), gauge)
 }
 
-
 # =============================================================================
 # Usage (single SVG)
 # =============================================================================
+# Create Directories 
+# dirs <- file.path("C:/path/to/networks",
+#  c("Birmingham", "Warrington", "Exeter",
+#    "Peterborough", "Reading", "Worthing", "Leeds"))
+#
+# lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
 # result <- extract_svg_links("network_upper_Ouse.svg")
 #
 # result$edges
