@@ -431,12 +431,6 @@ downstream_of <- function(g, gauge) {
 # =============================================================================
 # Usage (single SVG)
 # =============================================================================
-# Create Directories 
-# dirs <- file.path("C:/path/to/networks",
-#  c("Birmingham", "Warrington", "Exeter",
-#    "Peterborough", "Reading", "Worthing", "Leeds"))
-#
-# lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
 # result <- extract_svg_links("network_upper_Ouse.svg")
 #
 # result$edges
@@ -727,6 +721,12 @@ shared_gauges <- function(national, min_navtrees = 2L) {
 # =============================================================================
 # Usage (national)
 # =============================================================================
+# Create Directories 
+# dirs <- file.path("C:/path/to/networks",
+#  c("Birmingham", "Warrington", "Exeter",
+#    "Peterborough", "Reading", "Worthing", "Leeds"))
+#
+# lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
 # national <- extract_national_network("C:/path/to/networks")
 #
 # # Three output tables
