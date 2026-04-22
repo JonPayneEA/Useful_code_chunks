@@ -4,7 +4,7 @@
 # Extract directed links and node metadata from a FEWS-style flood-network SVG.
 # 
 # Portability:
-# - Regex uses R 4.0+ raw strings r"(…)".
+# - Regex uses R 4.0+ raw strings r"(...)".
 # - XPath uses intToUtf8(39L) to avoid smart-quote mangling on copy/paste.
 # =============================================================================
 
@@ -17,32 +17,32 @@ library(igraph)
 # – Shared colour/shape lookups used by multiple functions —————––
 
 .class_colours <- c(
-Import            = "#d4351c",
-GriddedImport     = "#f47738",
-CatAvg            = "#fbc9ec",
-CatAvgGroundwater = "#e8b0d4",
-PDM               = "#92d050",
-Groundwater       = "#2b8c2b",
-BlackBox          = "#7fcdbb",
-ARMA              = "#b7dee8",
-FMP               = "#6599d9",
-Sum               = "#fcddc4",
-AstroSum          = "#f9c49a",
-LevelToFlow       = "#c4a6d9",
-FlowToLevel       = "#9b7fc4",
-DataHierarchy     = "#a6a6a6"
+  Import            = "#d4351c",
+  GriddedImport     = "#f47738",
+  CatAvg            = "#fbc9ec",
+  CatAvgGroundwater = "#e8b0d4",
+  PDM               = "#92d050",
+  Groundwater       = "#2b8c2b",
+  BlackBox          = "#7fcdbb",
+  ARMA              = "#b7dee8",
+  FMP               = "#6599d9",
+  Sum               = "#fcddc4",
+  AstroSum          = "#f9c49a",
+  LevelToFlow       = "#c4a6d9",
+  FlowToLevel       = "#9b7fc4",
+  DataHierarchy     = "#a6a6a6"
 )
 
 .edge_colours <- c(
-"rgb(212, 53, 28)"  = "#d4351c",
-"rgb(0, 48, 120)"   = "#003078",
-"rgb(133, 153, 75)" = "#85994b"
+  "rgb(212, 53, 28)"  = "#d4351c",
+  "rgb(0, 48, 120)"   = "#003078",
+  "rgb(133, 153, 75)" = "#85994b"
 )
 
 .stroke_labels <- c(
-"rgb(212, 53, 28)"  = "Rainfall",
-"rgb(0, 48, 120)"   = "Flow",
-"rgb(133, 153, 75)" = "Level"
+  "rgb(212, 53, 28)"  = "Rainfall",
+  "rgb(0, 48, 120)"   = "Flow",
+  "rgb(133, 153, 75)" = "Level"
 )
 
 #’ Extract directed links from a FEWS-style flood-network SVG
@@ -71,129 +71,129 @@ DataHierarchy     = "#a6a6a6"
 #’
 #’ @export
 extract_svg_links <- function(svg_file, tol = 5) {
-
-doc <- read_xml(svg_file)
-ns  <- c(s = "http://www.w3.org/2000/svg")
-
-q        <- intToUtf8(39L)
-xp_nodes <- paste0("//s:g[contains(@class,", q, "node", q, ")]")
-xp_edges <- paste0("//s:g[@id=", q, "edges", q, "]/s:g")
-
-# – helpers —————————————————————
-
-parse_translate <- function(s) {
-if (is.na(s)) return(c(0, 0))
-m <- regmatches(s, regexec(r"(translate(([-0-9.]+)[ ,]+([-0-9.]+)))", s))[[1]]
-if (length(m) < 3) c(0, 0) else as.numeric(m[2:3])
-}
-
-node_label <- function(g) {
-tspans <- xml_find_all(g, ".//s:text/s:tspan", ns)
-if (length(tspans) == 0) return(NA_character_)
-trimws(xml_text(tspans[[length(tspans)]]))
-}
-
-strip_node_prefix <- function(cls) sub(r"(^node\s+)", "", cls)
-shared_id         <- function(id)  sub("/.*$", "", id)
-
-# – 1. Ports (one row per connection point) —————————––
-
-node_groups <- xml_find_all(doc, xp_nodes, ns)
-if (length(node_groups) == 0) stop("No node elements found. Check SVG structure.")
-
-ports <- rbindlist(lapply(node_groups, function(g) {
-node_id    <- xml_attr(g, "id")
-node_class <- strip_node_prefix(xml_attr(g, "class"))
-node_name  <- node_label(g)
-tr         <- parse_translate(xml_attr(g, "transform"))
-
-
-circles <- xml_find_all(g, ".//s:circle", ns)
-if (length(circles) > 0) {
-  return(data.table(
-    node_id    = node_id,
-    node_name  = node_name,
-    node_class = node_class,
-    x = tr[1] + as.numeric(xml_attr(circles, "cx")),
-    y = tr[2] + as.numeric(xml_attr(circles, "cy"))
-  ))
-}
-
-polys <- xml_find_all(g, ".//s:polygon", ns)
-if (length(polys) == 0) return(NULL)
-pts <- as.numeric(strsplit(xml_attr(polys[[1]], "points"), "[, ]+")[[1]])
-xs  <- pts[c(TRUE, FALSE)]
-ys  <- pts[c(FALSE, TRUE)]
-data.table(
-  node_id    = node_id,
-  node_name  = node_name,
-  node_class = node_class,
-  x = tr[1] + mean(xs),
-  y = tr[2] + max(ys)
-)
-
-
-}), fill = TRUE)
-
-# – 2. Parse edge endpoints ———————————————–
-
-edge_groups <- xml_find_all(doc, xp_edges, ns)
-if (length(edge_groups) == 0) stop("No edges found. Check SVG structure.")
-
-raw_edges <- rbindlist(lapply(seq_along(edge_groups), function(i) {
-paths <- xml_find_all(edge_groups[[i]], ".//s:path", ns)
-if (length(paths) == 0) return(NULL)
-
-
-d1 <- xml_attr(paths[[1]], "d")
-dN <- xml_attr(paths[[length(paths)]], "d")
-
-start <- as.numeric(
-  regmatches(d1, regexec(r"(M\s+(-?[0-9.]+)\s+(-?[0-9.]+))", d1))[[1]][2:3]
-)
-nums <- as.numeric(regmatches(dN, gregexpr(r"(-?[0-9.]+)", dN))[[1]])
-end  <- nums[(length(nums) - 1):length(nums)]
-
-style  <- xml_attr(paths[[1]], "style") %||% ""
-stroke <- regmatches(style, regexec(r"(stroke:\s*([^;]+))", style))[[1]][2]
-
-data.table(
-  edge_id = i,
-  start_x = start[1], start_y = start[2],
-  end_x   = end[1],   end_y   = end[2],
-  stroke  = trimws(stroke),
-  dashed  = grepl("dasharray", style)
-)
-
-
-}))
-
-# – 3. Match endpoints to nearest port ————————————
-
-nearest <- function(x, y) {
-d <- sqrt((ports$x - x)^2 + (ports$y - y)^2)
-i <- which.min(d)
-list(ports$node_name[i], d[i])
-}
-
-raw_edges[, c("from_name", "from_dist") := nearest(start_x, start_y), by = edge_id]
-raw_edges[, c("to_name", "to_dist")     := nearest(end_x, end_y),     by = edge_id]
-
-n_suspect <- sum(raw_edges$from_dist > tol | raw_edges$to_dist > tol)
-if (n_suspect > 0) {
-message(n_suspect, " edge(s) did not snap cleanly (dist > ", tol, ")")
-}
-
-# – 4. Build outputs ——————————————————
-
-edges <- unique(raw_edges[, .(from_name, to_name, stroke, dashed)])
-
-nodes <- unique(ports[, .(
-node_id    = shared_id(first(node_id)),
-node_class = first(node_class)
-), by = node_name])
-
-list(edges = edges, nodes = nodes)
+  
+  doc <- read_xml(svg_file)
+  ns  <- c(s = "http://www.w3.org/2000/svg")
+  
+  q        <- intToUtf8(39L)
+  xp_nodes <- paste0("//s:g[contains(@class,", q, "node", q, ")]")
+  xp_edges <- paste0("//s:g[@id=", q, "edges", q, "]/s:g")
+  
+  # – helpers —————————————————————
+  
+  parse_translate <- function(s) {
+    if (is.na(s)) return(c(0, 0))
+    m <- regmatches(s, regexec(r"(translate(([-0-9.]+)[ ,]+([-0-9.]+)))", s))[[1]]
+    if (length(m) < 3) c(0, 0) else as.numeric(m[2:3])
+  }
+  
+  node_label <- function(g) {
+    tspans <- xml_find_all(g, ".//s:text/s:tspan", ns)
+    if (length(tspans) == 0) return(NA_character_)
+    trimws(xml_text(tspans[[length(tspans)]]))
+  }
+  
+  strip_node_prefix <- function(cls) sub(r"(^node\s+)", "", cls)
+  shared_id         <- function(id)  sub("/.*$", "", id)
+  
+  # – 1. Ports (one row per connection point) —————————––
+  
+  node_groups <- xml_find_all(doc, xp_nodes, ns)
+  if (length(node_groups) == 0) stop("No node elements found. Check SVG structure.")
+  
+  ports <- rbindlist(lapply(node_groups, function(g) {
+    node_id    <- xml_attr(g, "id")
+    node_class <- strip_node_prefix(xml_attr(g, "class"))
+    node_name  <- node_label(g)
+    tr         <- parse_translate(xml_attr(g, "transform"))
+    
+    
+    circles <- xml_find_all(g, ".//s:circle", ns)
+    if (length(circles) > 0) {
+      return(data.table(
+        node_id    = node_id,
+        node_name  = node_name,
+        node_class = node_class,
+        x = tr[1] + as.numeric(xml_attr(circles, "cx")),
+        y = tr[2] + as.numeric(xml_attr(circles, "cy"))
+      ))
+    }
+    
+    polys <- xml_find_all(g, ".//s:polygon", ns)
+    if (length(polys) == 0) return(NULL)
+    pts <- as.numeric(strsplit(xml_attr(polys[[1]], "points"), "[, ]+")[[1]])
+    xs  <- pts[c(TRUE, FALSE)]
+    ys  <- pts[c(FALSE, TRUE)]
+    data.table(
+      node_id    = node_id,
+      node_name  = node_name,
+      node_class = node_class,
+      x = tr[1] + mean(xs),
+      y = tr[2] + max(ys)
+    )
+    
+    
+  }), fill = TRUE)
+  
+  # – 2. Parse edge endpoints ———————————————–
+  
+  edge_groups <- xml_find_all(doc, xp_edges, ns)
+  if (length(edge_groups) == 0) stop("No edges found. Check SVG structure.")
+  
+  raw_edges <- rbindlist(lapply(seq_along(edge_groups), function(i) {
+    paths <- xml_find_all(edge_groups[[i]], ".//s:path", ns)
+    if (length(paths) == 0) return(NULL)
+    
+    
+    d1 <- xml_attr(paths[[1]], "d")
+    dN <- xml_attr(paths[[length(paths)]], "d")
+    
+    start <- as.numeric(
+      regmatches(d1, regexec(r"(M\s+(-?[0-9.]+)\s+(-?[0-9.]+))", d1))[[1]][2:3]
+    )
+    nums <- as.numeric(regmatches(dN, gregexpr(r"(-?[0-9.]+)", dN))[[1]])
+    end  <- nums[(length(nums) - 1):length(nums)]
+    
+    style  <- xml_attr(paths[[1]], "style") %||% ""
+    stroke <- regmatches(style, regexec(r"(stroke:\s*([^;]+))", style))[[1]][2]
+    
+    data.table(
+      edge_id = i,
+      start_x = start[1], start_y = start[2],
+      end_x   = end[1],   end_y   = end[2],
+      stroke  = trimws(stroke),
+      dashed  = grepl("dasharray", style)
+    )
+    
+    
+  }))
+  
+  # – 3. Match endpoints to nearest port ————————————
+  
+  nearest <- function(x, y) {
+    d <- sqrt((ports$x - x)^2 + (ports$y - y)^2)
+    i <- which.min(d)
+    list(ports$node_name[i], d[i])
+  }
+  
+  raw_edges[, c("from_name", "from_dist") := nearest(start_x, start_y), by = edge_id]
+  raw_edges[, c("to_name", "to_dist")     := nearest(end_x, end_y),     by = edge_id]
+  
+  n_suspect <- sum(raw_edges$from_dist > tol | raw_edges$to_dist > tol)
+  if (n_suspect > 0) {
+    message(n_suspect, " edge(s) did not snap cleanly (dist > ", tol, ")")
+  }
+  
+  # – 4. Build outputs ——————————————————
+  
+  edges <- unique(raw_edges[, .(from_name, to_name, stroke, dashed)])
+  
+  nodes <- unique(ports[, .(
+    node_id    = shared_id(first(node_id)),
+    node_class = first(node_class)
+  ), by = node_name])
+  
+  list(edges = edges, nodes = nodes)
 }
 
 #’ Build an igraph object from extraction results
@@ -208,14 +208,14 @@ list(edges = edges, nodes = nodes)
 #’
 #’ @export
 build_graph <- function(result) {
-edges_df <- as.data.frame(result$edges)
-names(edges_df)[1:2] <- c("from", "to")
-
-graph_from_data_frame(
-d        = edges_df,
-vertices = as.data.frame(result$nodes[, c("node_name", "node_id", "node_class")]),
-directed = TRUE
-)
+  edges_df <- as.data.frame(result$edges)
+  names(edges_df)[1:2] <- c("from", "to")
+  
+  graph_from_data_frame(
+    d        = edges_df,
+    vertices = as.data.frame(result$nodes[, c("node_name", "node_id", "node_class")]),
+    directed = TRUE
+  )
 }
 
 #’ Plot the network as a static Sugiyama DAG
@@ -235,43 +235,43 @@ directed = TRUE
 #’
 #’ @export
 plot_network <- function(result, label_cex = 0.5) {
-
-g <- build_graph(result)
-
-vcols <- unname(.class_colours[V(g)$node_class])
-vcols[is.na(vcols)] <- "grey80"
-
-ecols <- unname(.edge_colours[E(g)$stroke])
-ecols[is.na(ecols)] <- "grey50"
-
-dashed <- E(g)$dashed
-if (is.null(dashed)) dashed <- rep(FALSE, ecount(g))
-dashed[is.na(dashed)] <- FALSE
-estyle <- ifelse(dashed, 2L, 1L)
-
-lay <- layout_with_sugiyama(g)
-
-plot(g,
-layout             = lay$layout,
-vertex.label       = V(g)$name,
-vertex.label.cex   = label_cex,
-vertex.label.color = "black",
-vertex.size        = 6,
-vertex.color       = vcols,
-vertex.frame.color = "grey40",
-edge.color         = ecols,
-edge.lty           = estyle,
-edge.arrow.size    = 0.25,
-edge.width         = 0.8,
-main               = "Flood Forecast Network")
-
-legend("bottomright",
-legend = names(.class_colours),
-fill   = .class_colours,
-cex    = 0.6,
-title  = "Node type")
-
-invisible(g)
+  
+  g <- build_graph(result)
+  
+  vcols <- unname(.class_colours[V(g)$node_class])
+  vcols[is.na(vcols)] <- "grey80"
+  
+  ecols <- unname(.edge_colours[E(g)$stroke])
+  ecols[is.na(ecols)] <- "grey50"
+  
+  dashed <- E(g)$dashed
+  if (is.null(dashed)) dashed <- rep(FALSE, ecount(g))
+  dashed[is.na(dashed)] <- FALSE
+  estyle <- ifelse(dashed, 2L, 1L)
+  
+  lay <- layout_with_sugiyama(g)
+  
+  plot(g,
+       layout             = lay$layout,
+       vertex.label       = V(g)$name,
+       vertex.label.cex   = label_cex,
+       vertex.label.color = "black",
+       vertex.size        = 6,
+       vertex.color       = vcols,
+       vertex.frame.color = "grey40",
+       edge.color         = ecols,
+       edge.lty           = estyle,
+       edge.arrow.size    = 0.25,
+       edge.width         = 0.8,
+       main               = "Flood Forecast Network")
+  
+  legend("bottomright",
+          legend = names(.class_colours),
+          fill   = .class_colours,
+          cex    = 0.6,
+          title  = "Node type")
+  
+  invisible(g)
 }
 
 #’ Plot the network as an interactive visNetwork widget
@@ -296,89 +296,89 @@ invisible(g)
 #’
 #’ @export
 plot_network_interactive <- function(result, title = "Flood Forecast Network") {
-
-if (!requireNamespace("visNetwork", quietly = TRUE)) {
-stop("Install visNetwork first: install.packages(‘visNetwork’)")
-}
-
-g <- build_graph(result)
-
-# – compute layout in R —————————————————
-
-lay <- layout_with_sugiyama(g)$layout
-lay[, 1] <- lay[, 1] * 200
-lay[, 2] <- lay[, 2] * -150
-
-# – nodes data.frame ——————————————————
-
-vis_shapes <- c(
-Import            = "triangle",
-GriddedImport     = "triangleDown",
-CatAvg            = "dot",
-CatAvgGroundwater = "dot",
-PDM               = "square",
-Groundwater       = "square",
-BlackBox          = "square",
-ARMA              = "diamond",
-FMP               = "star",
-Sum               = "dot",
-AstroSum          = "dot",
-LevelToFlow       = "diamond",
-FlowToLevel       = "diamond",
-DataHierarchy     = "dot"
-)
-
-nclass <- V(g)$node_class
-ncol   <- unname(.class_colours[nclass])
-ncol[is.na(ncol)] <- "grey80"
-nshape <- unname(vis_shapes[nclass])
-nshape[is.na(nshape)] <- "dot"
-
-vis_nodes <- data.frame(
-id    = V(g)$name,
-label = V(g)$name,
-title = paste0("<b>", V(g)$name, "</b><br>Type: ", nclass,
-"<br>ID: ", V(g)$node_id),
-color.background = ncol,
-color.border     = "grey40",
-shape = nshape,
-x     = lay[, 1],
-y     = lay[, 2],
-stringsAsFactors = FALSE
-)
-
-# – edges data.frame ——————————————————
-
-ecol <- unname(.edge_colours[E(g)$stroke])
-ecol[is.na(ecol)] <- "grey50"
-edash <- E(g)$dashed
-if (is.null(edash)) edash <- rep(FALSE, ecount(g))
-edash[is.na(edash)] <- FALSE
-
-vis_edges <- data.frame(
-from   = as.character(result$edges$from_name),
-to     = as.character(result$edges$to_name),
-color  = ecol,
-dashes = edash,
-title  = unname(.stroke_labels[E(g)$stroke]),
-stringsAsFactors = FALSE
-)
-vis_edges$title[is.na(vis_edges$title)] <- ""
-
-# – render ––––––––––––––––––––––––––––––––
-
-visNetwork::visNetwork(vis_nodes, vis_edges, main = title,
-width = "100%", height = "800px") |>
-visNetwork::visEdges(arrows = "to",
-smooth = list(type = "cubicBezier"),
-width  = 1.5) |>
-visNetwork::visNodes(font = list(size = 14)) |>
-visNetwork::visPhysics(enabled = FALSE) |>
-visNetwork::visOptions(
-highlightNearest = list(enabled = TRUE, degree = 1, hover = TRUE),
-nodesIdSelection = list(enabled = TRUE, main = "Select node")
-) |>
-visNetwork::visInteraction(navigationButtons = TRUE, keyboard = TRUE)
+  
+  if (!requireNamespace("visNetwork", quietly = TRUE)) {
+    stop("Install visNetwork first: install.packages(‘visNetwork’)")
+  }
+  
+  g <- build_graph(result)
+  
+  # – compute layout in R —————————————————
+  
+  lay <- layout_with_sugiyama(g)$layout
+  lay[, 1] <- lay[, 1] * 200
+  lay[, 2] <- lay[, 2] * -150
+  
+  # – nodes data.frame ——————————————————
+  
+  vis_shapes <- c(
+    Import            = "triangle",
+    GriddedImport     = "triangleDown",
+    CatAvg            = "dot",
+    CatAvgGroundwater = "dot",
+    PDM               = "square",
+    Groundwater       = "square",
+    BlackBox          = "square",
+    ARMA              = "diamond",
+    FMP               = "star",
+    Sum               = "dot",
+    AstroSum          = "dot",
+    LevelToFlow       = "diamond",
+    FlowToLevel       = "diamond",
+    DataHierarchy     = "dot"
+  )
+  
+  nclass <- V(g)$node_class
+  ncol   <- unname(.class_colours[nclass])
+  ncol[is.na(ncol)] <- "grey80"
+  nshape <- unname(vis_shapes[nclass])
+  nshape[is.na(nshape)] <- "dot"
+  
+  vis_nodes <- data.frame(
+    id    = V(g)$name,
+    label = V(g)$name,
+    title = paste0("<b>", V(g)$name, "</b><br>Type: ", nclass,
+                    "<br>ID: ", V(g)$node_id),
+    color.background = ncol,
+    color.border     = "grey40",
+    shape = nshape,
+    x     = lay[, 1],
+    y     = lay[, 2],
+    stringsAsFactors = FALSE
+  )
+  
+  # – edges data.frame ——————————————————
+  
+  ecol <- unname(.edge_colours[E(g)$stroke])
+  ecol[is.na(ecol)] <- "grey50"
+  edash <- E(g)$dashed
+  if (is.null(edash)) edash <- rep(FALSE, ecount(g))
+  edash[is.na(edash)] <- FALSE
+  
+  vis_edges <- data.frame(
+    from   = as.character(result$edges$from_name),
+    to     = as.character(result$edges$to_name),
+    color  = ecol,
+    dashes = edash,
+    title  = unname(.stroke_labels[E(g)$stroke]),
+    stringsAsFactors = FALSE
+  )
+  vis_edges$title[is.na(vis_edges$title)] <- ""
+  
+  # – render ––––––––––––––––––––––––––––––––
+  
+  visNetwork::visNetwork(vis_nodes, vis_edges, main = title,
+                         width = "100%", height = "800px") |>
+    visNetwork::visEdges(arrows = "to",
+                         smooth = list(type = "cubicBezier"),
+                         width  = 1.5) |>
+    visNetwork::visNodes(font = list(size = 14)) |>
+    visNetwork::visPhysics(enabled = FALSE) |>
+    visNetwork::visOptions(
+      highlightNearest = list(enabled = TRUE, degree = 1, hover = TRUE),
+      nodesIdSelection = list(enabled = TRUE, main = "Select node")
+    ) |>
+    visNetwork::visInteraction(navigationButtons = TRUE, keyboard = TRUE)
 }
 
 #’ Subset the network upstream or downstream of a named node
@@ -403,19 +403,19 @@ visNetwork::visInteraction(navigationButtons = TRUE, keyboard = TRUE)
 #’
 #’ @export
 subset_network <- function(result, gauge, direction = "upstream") {
-
-g <- build_graph(result)
-
-v <- which(V(g)$name == gauge)
-if (length(v) == 0) stop("No node named: ", gauge)
-
-mode <- if (direction == "upstream") "in" else "out"
-keep <- names(subcomponent(g, v, mode = mode))
-
-list(
-edges = result$edges[from_name %in% keep & to_name %in% keep],
-nodes = result$nodes[node_name %in% keep]
-)
+  
+  g <- build_graph(result)
+  
+  v <- which(V(g)$name == gauge)
+  if (length(v) == 0) stop("No node named: ", gauge)
+  
+  mode <- if (direction == "upstream") "in" else "out"
+  keep <- names(subcomponent(g, v, mode = mode))
+  
+  list(
+    edges = result$edges[from_name %in% keep & to_name %in% keep],
+    nodes = result$nodes[node_name %in% keep]
+  )
 }
 
 #’ List all nodes downstream of a gauge
@@ -436,9 +436,9 @@ nodes = result$nodes[node_name %in% keep]
 #’
 #’ @export
 downstream_of <- function(g, gauge) {
-v <- which(V(g)$name == gauge)
-if (length(v) == 0) stop("No node named: ", gauge)
-setdiff(names(subcomponent(g, v, mode = "out")), gauge)
+  v <- which(V(g)$name == gauge)
+  if (length(v) == 0) stop("No node named: ", gauge)
+  setdiff(names(subcomponent(g, v, mode = "out")), gauge)
 }
 
 # =============================================================================
@@ -481,7 +481,6 @@ setdiff(names(subcomponent(g, v, mode = "out")), gauge)
 # NATIONAL NETWORK LAYER
 # 
 # =============================================================================
-
 #’ Extract all flood network SVGs under a national directory
 #’
 #’ Walks a directory structure of the form:
@@ -518,83 +517,88 @@ setdiff(names(subcomponent(g, v, mode = "out")), gauge)
 #’
 #’ @export
 extract_national_network <- function(root, tol = 5) {
-
-centres <- list.dirs(root, recursive = FALSE, full.names = TRUE)
-
-if (length(centres) == 0) stop("No centre subfolders found under: ", root)
-
-all_edges <- list()
-all_nodes <- list()
-all_usage <- list()
-
-for (centre_path in centres) {
-centre <- basename(centre_path)
-svgs   <- list.files(centre_path, pattern = "[.]svg$", full.names = TRUE,
-                     ignore.case = TRUE)
-
-if (length(svgs) == 0) {
-  message("No SVGs in ", centre, " - skipping")
-  next
-}
-
-for (svg_file in svgs) {
-
-  navtree <- tools::file_path_sans_ext(basename(svg_file))
-  message("Processing: ", centre, " / ", navtree)
-
-  result <- tryCatch(
-    extract_svg_links(svg_file, tol = tol),
-    error = function(e) {
-      warning("Failed: ", centre, "/", navtree, " - ", conditionMessage(e))
-      NULL
+  
+  centres <- list.dirs(root, recursive = FALSE, full.names = TRUE)
+  
+  if (length(centres) == 0) stop("No centre subfolders found under: ", root)
+  
+  all_edges <- list()
+  all_nodes <- list()
+  all_usage <- list()
+  
+  for (centre_path in centres) {
+    
+    
+    centre <- basename(centre_path)
+    svgs   <- list.files(centre_path, pattern = "[.]svg$", full.names = TRUE,
+                         ignore.case = TRUE)
+    
+    if (length(svgs) == 0) {
+      message("No SVGs in ", centre, " - skipping")
+      next
     }
+    
+    for (svg_file in svgs) {
+      
+      navtree <- tools::file_path_sans_ext(basename(svg_file))
+      message("Processing: ", centre, " / ", navtree)
+      
+      result <- tryCatch(
+        extract_svg_links(svg_file, tol = tol),
+        error = function(e) {
+          warning("Failed: ", centre, "/", navtree, " - ", conditionMessage(e))
+          NULL
+        }
+      )
+      if (is.null(result)) next
+      
+      # Tag edges with provenance
+      edges <- copy(result$edges)
+      edges[, centre := centre]
+      edges[, navtree := navtree]
+      all_edges[[length(all_edges) + 1]] <- edges
+      
+      # Tag nodes for usage table
+      nodes <- copy(result$nodes)
+      nodes[, centre := centre]
+      nodes[, navtree := navtree]
+      all_usage[[length(all_usage) + 1]] <- nodes
+      all_nodes[[length(all_nodes) + 1]] <- result$nodes
+    }
+    
+    
+  }
+  
+  if (length(all_edges) == 0) stop("No SVGs processed successfully.")
+  
+  # National edges: keep per-navtree provenance
+  
+  edges <- rbindlist(all_edges)
+  
+  # National nodes: deduplicate. If the same node_name appears in multiple
+  
+  # SVGs, keep the first node_id and node_class encountered (UUIDs are
+  
+  # assumed consistent across SVGs).
+  
+  nodes <- unique(rbindlist(all_nodes), by = "node_name")
+  
+  # Gauge usage: long-form, one row per node per navtree
+  
+  gauge_usage <- unique(rbindlist(all_usage)[
+    , .(node_name, node_class, centre, navtree)
+  ])
+  
+  n_svgs    <- nrow(unique(edges[, .(centre, navtree)]))
+  n_centres <- uniqueN(edges$centre)
+  message("Done: ", n_svgs, " SVGs across ", n_centres, " centres, ",
+           nrow(nodes), " unique nodes, ", nrow(edges), " edges")
+  
+  list(
+    edges       = edges,
+    nodes       = nodes,
+    gauge_usage = gauge_usage
   )
-  if (is.null(result)) next
-
-  # Tag edges with provenance
-  edges <- copy(result$edges)
-  edges[, centre := centre]
-  edges[, navtree := navtree]
-  all_edges[[length(all_edges) + 1]] <- edges
-
-  # Tag nodes for usage table
-  nodes <- copy(result$nodes)
-  nodes[, centre := centre]
-  nodes[, navtree := navtree]
-  all_usage[[length(all_usage) + 1]] <- nodes
-  all_nodes[[length(all_nodes) + 1]] <- result$nodes
-}
-
-}
-
-if (length(all_edges) == 0) stop("No SVGs processed successfully.")
-
-# National edges: keep per-navtree provenance
-edges <- rbindlist(all_edges)
-
-# National nodes: deduplicate. If the same node_name appears in multiple
-# SVGs, keep the first node_id and node_class encountered (UUIDs are
-
-# assumed consistent across SVGs).
-
-nodes <- unique(rbindlist(all_nodes), by = "node_name")
-
-# Gauge usage: long-form, one row per node per navtree
-
-gauge_usage <- unique(rbindlist(all_usage)[
-, .(node_name, node_class, centre, navtree)
-])
-
-n_svgs    <- nrow(unique(edges[, .(centre, navtree)]))
-n_centres <- uniqueN(edges$centre)
-message("Done: ", n_svgs, " SVGs across ", n_centres, " centres, ",
-nrow(nodes), " unique nodes, ", nrow(edges), " edges")
-
-list(
-edges       = edges,
-nodes       = nodes,
-gauge_usage = gauge_usage
-)
 }
 
 #’ Subset the national network to a single navtree
@@ -619,25 +623,27 @@ gauge_usage = gauge_usage
 #’
 #’ @export
 subset_by_navtree <- function(national, navtree, centre = NULL) {
-
-nav_edges <- national$edges[navtree == ..navtree]
-if (!is.null(centre)) nav_edges <- nav_edges[centre == ..centre]
-
-if (nrow(nav_edges) == 0) {
-available <- unique(national$edges[, .(centre, navtree)])
-stop("Navtree ‘", navtree, "’ not found.",
-if (!is.null(centre)) paste0(" (centre: ‘", centre, "’)") else "",
-"\nAvailable: \n",
-paste(capture.output(print(available)), collapse = "\n"))
-}
-
-nav_names <- union(nav_edges$from_name, nav_edges$to_name)
-nav_nodes <- national$nodes[node_name %in% nav_names]
-
-list(
-edges = nav_edges[, .(from_name, to_name, stroke, dashed)],
-nodes = nav_nodes
-)
+  
+  target_nav <- navtree
+  target_ctr <- centre
+  nav_edges <- national$edges[navtree == target_nav]
+  if (!is.null(centre)) nav_edges <- nav_edges[centre == target_ctr]
+  
+  if (nrow(nav_edges) == 0) {
+    available <- unique(national$edges[, c("centre", "navtree"), with = FALSE])
+    stop("Navtree ‘", navtree, "’ not found.",
+          if (!is.null(centre)) paste0(" (centre: ‘", centre, "’)") else "",
+          "\nAvailable: \n",
+          paste(capture.output(print(available)), collapse = "\n"))
+  }
+  
+  nav_names <- union(nav_edges$from_name, nav_edges$to_name)
+  nav_nodes <- national$nodes[node_name %in% nav_names]
+  
+  list(
+    edges = nav_edges[, c("from_name", "to_name", "stroke", "dashed"), with = FALSE],
+    nodes = nav_nodes
+  )
 }
 
 #’ Subset the national network to a single centre
@@ -660,24 +666,25 @@ nodes = nav_nodes
 #’
 #’ @export
 subset_by_centre <- function(national, centre) {
-
-ctr_edges <- national$edges[centre == ..centre]
-
-if (nrow(ctr_edges) == 0) {
-available <- unique(national$edges$centre)
-stop("Centre ‘", centre, "’ not found. Available: ",
-paste(available, collapse = ", "))
-}
-
-ctr_names <- union(ctr_edges$from_name, ctr_edges$to_name)
-ctr_nodes <- national$nodes[node_name %in% ctr_names]
-ctr_usage <- national$gauge_usage[centre == ..centre]
-
-list(
-edges       = ctr_edges,
-nodes       = ctr_nodes,
-gauge_usage = ctr_usage
-)
+  
+  target_ctr <- centre
+  ctr_edges <- national$edges[centre == target_ctr]
+  
+  if (nrow(ctr_edges) == 0) {
+    available <- unique(national$edges$centre)
+    stop("Centre ‘", centre, "’ not found. Available: ",
+          paste(available, collapse = ", "))
+  }
+  
+  ctr_names <- union(ctr_edges$from_name, ctr_edges$to_name)
+  ctr_nodes <- national$nodes[node_name %in% ctr_names]
+  ctr_usage <- national$gauge_usage[centre == target_ctr]
+  
+  list(
+    edges       = ctr_edges,
+    nodes       = ctr_nodes,
+    gauge_usage = ctr_usage
+  )
 }
 
 #’ Find all Import gauges feeding a given node
@@ -708,14 +715,14 @@ gauge_usage = ctr_usage
 #’
 #’ @export
 gauges_for <- function(result, node_name) {
-
-if (!node_name %in% result$nodes$node_name) {
-stop("Node ‘", node_name, "’ not found. ",
-"Check result$nodes$node_name for available names.")
-}
-
-upstream <- subset_network(result, node_name, "upstream")
-upstream$nodes[node_class %in% c("Import", "GriddedImport")]
+  
+  if (!node_name %in% result$nodes$node_name) {
+    stop("Node ‘", node_name, "’ not found. ",
+          "Check result$nodes$node_name for available names.")
+  }
+  
+  upstream <- subset_network(result, node_name, "upstream")
+  upstream$nodes[node_class %in% c("Import", "GriddedImport")]
 }
 
 #’ List available navtrees in the national network
@@ -734,16 +741,16 @@ upstream$nodes[node_class %in% c("Import", "GriddedImport")]
 #’
 #’ @export
 list_navtrees <- function(national) {
-
-edge_counts <- national$edges[, .(n_edges = .N), by = .(centre, navtree)]
-
-node_counts <- national$edges[, .(
-nodes = union(from_name, to_name)
-), by = .(centre, navtree)][, .(n_nodes = .N), by = .(centre, navtree)]
-
-out <- merge(edge_counts, node_counts, by = c("centre", "navtree"))
-setorder(out, centre, navtree)
-out
+  
+  edge_counts <- national$edges[, .(n_edges = .N), by = .(centre, navtree)]
+  
+  node_counts <- national$edges[, .(
+    nodes = union(from_name, to_name)
+  ), by = .(centre, navtree)][, .(n_nodes = .N), by = .(centre, navtree)]
+  
+  out <- merge(edge_counts, node_counts, by = c("centre", "navtree"))
+  setorder(out, centre, navtree)
+  out
 }
 
 #’ Assess the impact of removing a gauge from the national network
@@ -771,71 +778,71 @@ out
 #’
 #’ @export
 gauge_impact <- function(national, gauge) {
-
-usage <- national$gauge_usage[node_name == gauge]
-
-if (nrow(usage) == 0) {
-stop("Gauge ‘", gauge, "’ not found in the national network. ",
-"Check spelling against national$nodes$node_name")
-}
-
-detail_list  <- list()
-summary_list <- list()
-
-for (i in seq_len(nrow(usage))) {
-
-
-ctr <- usage$centre[i]
-nav <- usage$navtree[i]
-
-# Build the subgraph for this navtree
-nav_edges <- national$edges[centre == ctr & navtree == nav]
-nav_nodes <- national$nodes[
-  node_name %in% union(nav_edges$from_name, nav_edges$to_name)
-]
-
-nav_result <- list(edges = nav_edges, nodes = nav_nodes)
-g <- build_graph(nav_result)
-
-v <- which(V(g)$name == gauge)
-if (length(v) == 0) next
-
-ds_names <- setdiff(names(subcomponent(g, v, mode = "out")), gauge)
-if (length(ds_names) == 0) next
-
-ds_classes <- V(g)[ds_names]$node_class
-
-detail_list[[length(detail_list) + 1]] <- data.table(
-  centre          = ctr,
-  navtree         = nav,
-  downstream_node = ds_names,
-  node_class      = ds_classes
-)
-
-fmps <- ds_names[ds_classes == "FMP"]
-
-summary_list[[length(summary_list) + 1]] <- data.table(
-  centre        = ctr,
-  navtree       = nav,
-  n_downstream  = length(ds_names),
-  fmps_affected = if (length(fmps) > 0) paste(fmps, collapse = ", ") else ""
-)
-
-
-}
-
-detail  <- if (length(detail_list) > 0) rbindlist(detail_list) else
-data.table(centre = character(), navtree = character(),
-downstream_node = character(), node_class = character())
-
-summary <- if (length(summary_list) > 0) rbindlist(summary_list) else
-data.table(centre = character(), navtree = character(),
-n_downstream = integer(), fmps_affected = character())
-
-message("Gauge ‘", gauge, "’ used in ", nrow(usage), " navtree(s), ",
-"affecting ", sum(summary$n_downstream), " downstream node(s)")
-
-list(summary = summary, detail = detail)
+  
+  usage <- national$gauge_usage[node_name == gauge]
+  
+  if (nrow(usage) == 0) {
+    stop("Gauge ‘", gauge, "’ not found in the national network. ",
+          "Check spelling against national$nodes$node_name")
+  }
+  
+  detail_list  <- list()
+  summary_list <- list()
+  
+  for (i in seq_len(nrow(usage))) {
+    
+    
+    ctr <- usage$centre[i]
+    nav <- usage$navtree[i]
+    
+    # Build the subgraph for this navtree
+    nav_edges <- national$edges[centre == ctr & navtree == nav]
+    nav_nodes <- national$nodes[
+      node_name %in% union(nav_edges$from_name, nav_edges$to_name)
+    ]
+    
+    nav_result <- list(edges = nav_edges, nodes = nav_nodes)
+    g <- build_graph(nav_result)
+    
+    v <- which(V(g)$name == gauge)
+    if (length(v) == 0) next
+    
+    ds_names <- setdiff(names(subcomponent(g, v, mode = "out")), gauge)
+    if (length(ds_names) == 0) next
+    
+    ds_classes <- V(g)[ds_names]$node_class
+    
+    detail_list[[length(detail_list) + 1]] <- data.table(
+      centre          = ctr,
+      navtree         = nav,
+      downstream_node = ds_names,
+      node_class      = ds_classes
+    )
+    
+    fmps <- ds_names[ds_classes == "FMP"]
+    
+    summary_list[[length(summary_list) + 1]] <- data.table(
+      centre        = ctr,
+      navtree       = nav,
+      n_downstream  = length(ds_names),
+      fmps_affected = if (length(fmps) > 0) paste(fmps, collapse = ", ") else ""
+    )
+    
+    
+  }
+  
+  detail  <- if (length(detail_list) > 0) rbindlist(detail_list) else
+    data.table(centre = character(), navtree = character(),
+               downstream_node = character(), node_class = character())
+  
+  summary <- if (length(summary_list) > 0) rbindlist(summary_list) else
+    data.table(centre = character(), navtree = character(),
+               n_downstream = integer(), fmps_affected = character())
+  
+  message("Gauge ‘", gauge, "’ used in ", nrow(usage), " navtree(s), ",
+           "affecting ", sum(summary$n_downstream), " downstream node(s)")
+  
+  list(summary = summary, detail = detail)
 }
 
 #’ Find all gauges shared across multiple navtrees
@@ -858,21 +865,21 @@ list(summary = summary, detail = detail)
 #’
 #’ @export
 shared_gauges <- function(national, min_navtrees = 2L) {
-
-usage <- national$gauge_usage
-
-out <- usage[, .(
-node_class  = first(node_class),
-n_navtrees  = uniqueN(navtree),
-n_centres   = uniqueN(centre),
-navtrees    = paste(unique(navtree), collapse = ", "),
-centres     = paste(unique(centre), collapse = ", ")
-), by = node_name]
-
-out <- out[n_navtrees >= min_navtrees][order(-n_navtrees)]
-
-message(nrow(out), " gauge(s) shared across >= ", min_navtrees, " navtrees")
-out
+  
+  usage <- national$gauge_usage
+  
+  out <- usage[, .(
+    node_class  = first(node_class),
+    n_navtrees  = uniqueN(navtree),
+    n_centres   = uniqueN(centre),
+    navtrees    = paste(unique(navtree), collapse = ", "),
+    centres     = paste(unique(centre), collapse = ", ")
+  ), by = node_name]
+  
+  out <- out[n_navtrees >= min_navtrees][order(-n_navtrees)]
+  
+  message(nrow(out), " gauge(s) shared across >= ", min_navtrees, " navtrees")
+  out
 }
 
 # =============================================================================
@@ -900,65 +907,63 @@ out
 #’
 #’ @export
 forecast_chain_depth <- function(national, max_depth = 5L) {
-
-navtrees <- unique(national$edges[, .(centre, navtree)])
-results  <- list()
-
-for (i in seq_len(nrow(navtrees))) {
-
-
-ctr <- navtrees$centre[i]
-nav <- navtrees$navtree[i]
-
-nav_edges <- national$edges[centre == ctr & navtree == nav]
-nav_names <- union(nav_edges$from_name, nav_edges$to_name)
-nav_nodes <- national$nodes[node_name %in% nav_names]
-
-nav_result <- list(
-  edges = nav_edges[, .(from_name, to_name, stroke, dashed)],
-  nodes = nav_nodes
-)
-g <- build_graph(nav_result)
-
-imports <- V(g)[V(g)$node_class %in% c("Import", "GriddedImport")]$name
-fmps    <- V(g)[V(g)$node_class == "FMP"]$name
-
-if (length(imports) == 0 || length(fmps) == 0) next
-
-dists <- distances(g, v = imports, to = fmps, mode = "out")
-
-for (ri in seq_along(imports)) {
-  for (ci in seq_along(fmps)) {
-    d <- dists[ri, ci]
-    if (is.finite(d)) {
-      results[[length(results) + 1]] <- data.table(
-        centre      = ctr,
-        navtree     = nav,
-        import_node = imports[ri],
-        fmp_node    = fmps[ci],
-        chain_depth = as.integer(d)
-      )
+  
+  navtrees <- unique(national$edges[, .(centre, navtree)])
+  results  <- list()
+  
+  for (i in seq_len(nrow(navtrees))) {
+    ctr <- navtrees$centre[i]
+    nav <- navtrees$navtree[i]
+    
+    nav_edges <- national$edges[centre == ctr & navtree == nav]
+    nav_names <- union(nav_edges$from_name, nav_edges$to_name)
+    nav_nodes <- national$nodes[node_name %in% nav_names]
+    
+    nav_result <- list(
+      edges = nav_edges[, .(from_name, to_name, stroke, dashed)],
+      nodes = nav_nodes
+    )
+    g <- build_graph(nav_result)
+    
+    imports <- V(g)[V(g)$node_class %in% c("Import", "GriddedImport")]$name
+    fmps    <- V(g)[V(g)$node_class == "FMP"]$name
+    
+    if (length(imports) == 0 || length(fmps) == 0) next
+    
+    dists <- distances(g, v = imports, to = fmps, mode = "out")
+    
+    for (ri in seq_along(imports)) {
+      for (ci in seq_along(fmps)) {
+        d <- dists[ri, ci]
+        if (is.finite(d)) {
+          results[[length(results) + 1]] <- data.table(
+            centre      = ctr,
+            navtree     = nav,
+            import_node = imports[ri],
+            fmp_node    = fmps[ci],
+            chain_depth = as.integer(d)
+          )
+        }
+      }
     }
+    
+    
   }
-}
-
-
-}
-
-if (length(results) == 0) {
-message("No Import-to-FMP chains found.")
-return(data.table(centre = character(), navtree = character(),
-import_node = character(), fmp_node = character(),
-chain_depth = integer(), flagged = logical()))
-}
-
-out <- rbindlist(results)
-out[, flagged := chain_depth > max_depth]
-setorder(out, -chain_depth)
-
-message(nrow(out), " chains found, ",
-sum(out$flagged), " flagged (depth > ", max_depth, ")")
-out
+  
+  if (length(results) == 0) {
+    message("No Import-to-FMP chains found.")
+    return(data.table(centre = character(), navtree = character(),
+                      import_node = character(), fmp_node = character(),
+                      chain_depth = integer(), flagged = logical()))
+  }
+  
+  out <- rbindlist(results)
+  out[, flagged := chain_depth > max_depth]
+  setorder(out, -chain_depth)
+  
+  message(nrow(out), " chains found, ",
+          sum(out$flagged), " flagged (depth > ", max_depth, ")")
+  out
 }
 
 #’ Detect orphan or misconfigured nodes
@@ -984,75 +989,75 @@ out
 #’
 #’ @export
 detect_orphans <- function(national) {
-
-navtrees <- unique(national$edges[, .(centre, navtree)])
-results  <- list()
-
-for (i in seq_len(nrow(navtrees))) {
-
-
-ctr <- navtrees$centre[i]
-nav <- navtrees$navtree[i]
-
-nav_edges <- national$edges[centre == ctr & navtree == nav]
-nav_names <- union(nav_edges$from_name, nav_edges$to_name)
-nav_nodes <- national$nodes[node_name %in% nav_names]
-
-nav_result <- list(
-  edges = nav_edges[, .(from_name, to_name, stroke, dashed)],
-  nodes = nav_nodes
-)
-g <- build_graph(nav_result)
-
-for (v in V(g)) {
-  nm  <- V(g)[v]$name
-  cls <- V(g)[v]$node_class
-  din  <- degree(g, v, mode = "in")
-  dout <- degree(g, v, mode = "out")
-
-  issues <- character()
-
-  source_classes   <- c("Import", "GriddedImport")
-  terminal_classes <- c("FMP", "DataHierarchy")
-
-  if (cls %in% source_classes && dout == 0) {
-    issues <- c(issues, paste0(cls, " feeds nothing"))
-  }
-  if (cls == "FMP" && din == 0) {
-    issues <- c(issues, "FMP receives no input")
-  }
-  if (!cls %in% c(terminal_classes, source_classes) && dout == 0) {
-    issues <- c(issues, "Dead end (non-terminal node with no outgoing edges)")
-  }
-  if (!cls %in% source_classes && din == 0) {
-    issues <- c(issues, "Disconnected (non-source node with no incoming edges)")
-  }
-
-  for (issue in issues) {
-    results[[length(results) + 1]] <- data.table(
-      centre     = ctr,
-      navtree    = nav,
-      node_name  = nm,
-      node_class = cls,
-      issue      = issue
+  
+  navtrees <- unique(national$edges[, .(centre, navtree)])
+  results  <- list()
+  
+  for (i in seq_len(nrow(navtrees))) {
+    
+    
+    ctr <- navtrees$centre[i]
+    nav <- navtrees$navtree[i]
+    
+    nav_edges <- national$edges[centre == ctr & navtree == nav]
+    nav_names <- union(nav_edges$from_name, nav_edges$to_name)
+    nav_nodes <- national$nodes[node_name %in% nav_names]
+    
+    nav_result <- list(
+      edges = nav_edges[, .(from_name, to_name, stroke, dashed)],
+      nodes = nav_nodes
     )
+    g <- build_graph(nav_result)
+    
+    for (v in V(g)) {
+      nm  <- V(g)[v]$name
+      cls <- V(g)[v]$node_class
+      din  <- degree(g, v, mode = "in")
+      dout <- degree(g, v, mode = "out")
+      
+      issues <- character()
+      
+      source_classes   <- c("Import", "GriddedImport")
+      terminal_classes <- c("FMP", "DataHierarchy")
+      
+      if (cls %in% source_classes && dout == 0) {
+        issues <- c(issues, paste0(cls, " feeds nothing"))
+      }
+      if (cls == "FMP" && din == 0) {
+        issues <- c(issues, "FMP receives no input")
+      }
+      if (!cls %in% c(terminal_classes, source_classes) && dout == 0) {
+        issues <- c(issues, "Dead end (non-terminal node with no outgoing edges)")
+      }
+      if (!cls %in% source_classes && din == 0) {
+        issues <- c(issues, "Disconnected (non-source node with no incoming edges)")
+      }
+      
+      for (issue in issues) {
+        results[[length(results) + 1]] <- data.table(
+          centre     = ctr,
+          navtree    = nav,
+          node_name  = nm,
+          node_class = cls,
+          issue      = issue
+        )
+      }
+    }
+    
+    
   }
-}
-
-
-}
-
-if (length(results) == 0) {
-message("No orphan nodes detected.")
-return(data.table(centre = character(), navtree = character(),
-node_name = character(), node_class = character(),
-issue = character()))
-}
-
-out <- rbindlist(results)
-message(nrow(out), " issue(s) detected across ",
-uniqueN(out$navtree), " navtree(s)")
-out
+  
+  if (length(results) == 0) {
+    message("No orphan nodes detected.")
+    return(data.table(centre = character(), navtree = character(),
+                      node_name = character(), node_class = character(),
+                      issue = character()))
+  }
+  
+  out <- rbindlist(results)
+  message(nrow(out), " issue(s) detected across ",
+          uniqueN(out$navtree), " navtree(s)")
+  out
 }
 
 #’ Identify gauges shared across forecast centres
@@ -1074,21 +1079,21 @@ out
 #’
 #’ @export
 cross_centre_gauges <- function(national, min_centres = 2L) {
-
-usage <- national$gauge_usage
-
-out <- usage[, .(
-node_class = first(node_class),
-n_centres  = uniqueN(centre),
-n_navtrees = uniqueN(navtree),
-centres    = paste(unique(centre), collapse = ", "),
-navtrees   = paste(unique(navtree), collapse = ", ")
-), by = node_name]
-
-out <- out[n_centres >= min_centres][order(-n_centres, -n_navtrees)]
-
-message(nrow(out), " gauge(s) shared across >= ", min_centres, " centres")
-out
+  
+  usage <- national$gauge_usage
+  
+  out <- usage[, .(
+    node_class = first(node_class),
+    n_centres  = uniqueN(centre),
+    n_navtrees = uniqueN(navtree),
+    centres    = paste(unique(centre), collapse = ", "),
+    navtrees   = paste(unique(navtree), collapse = ", ")
+  ), by = node_name]
+  
+  out <- out[n_centres >= min_centres][order(-n_centres, -n_navtrees)]
+  
+  message(nrow(out), " gauge(s) shared across >= ", min_centres, " centres")
+  out
 }
 
 #’ Score FMP redundancy by independent import paths
@@ -1110,70 +1115,70 @@ out
 #’
 #’ @export
 fmp_redundancy <- function(national) {
-
-navtrees <- unique(national$edges[, .(centre, navtree)])
-results  <- list()
-
-for (i in seq_len(nrow(navtrees))) {
-
-
-ctr <- navtrees$centre[i]
-nav <- navtrees$navtree[i]
-
-nav_edges <- national$edges[centre == ctr & navtree == nav]
-nav_names <- union(nav_edges$from_name, nav_edges$to_name)
-nav_nodes <- national$nodes[node_name %in% nav_names]
-
-nav_result <- list(
-  edges = nav_edges[, .(from_name, to_name, stroke, dashed)],
-  nodes = nav_nodes
-)
-g <- build_graph(nav_result)
-
-imports <- V(g)[V(g)$node_class %in% c("Import", "GriddedImport")]$name
-fmps    <- V(g)[V(g)$node_class == "FMP"]$name
-
-if (length(fmps) == 0) next
-
-for (fmp in fmps) {
-  # Walk upstream from FMP and find which Imports are reachable
-  fmp_v    <- which(V(g)$name == fmp)
-  upstream <- names(subcomponent(g, fmp_v, mode = "in"))
-  feeding  <- intersect(upstream, imports)
-
-  n <- length(feeding)
-  rc <- if (n == 0) "none" else if (n == 1) "low" else
+  
+  navtrees <- unique(national$edges[, .(centre, navtree)])
+  results  <- list()
+  
+  for (i in seq_len(nrow(navtrees))) {
+    
+    
+    ctr <- navtrees$centre[i]
+    nav <- navtrees$navtree[i]
+    
+    nav_edges <- national$edges[centre == ctr & navtree == nav]
+    nav_names <- union(nav_edges$from_name, nav_edges$to_name)
+    nav_nodes <- national$nodes[node_name %in% nav_names]
+    
+    nav_result <- list(
+      edges = nav_edges[, .(from_name, to_name, stroke, dashed)],
+      nodes = nav_nodes
+    )
+    g <- build_graph(nav_result)
+    
+    imports <- V(g)[V(g)$node_class %in% c("Import", "GriddedImport")]$name
+    fmps    <- V(g)[V(g)$node_class == "FMP"]$name
+    
+    if (length(fmps) == 0) next
+    
+    for (fmp in fmps) {
+      # Walk upstream from FMP and find which Imports are reachable
+      fmp_v    <- which(V(g)$name == fmp)
+      upstream <- names(subcomponent(g, fmp_v, mode = "in"))
+      feeding  <- intersect(upstream, imports)
+      
+      n <- length(feeding)
+      rc <- if (n == 0) "none" else if (n == 1) "low" else
         if (n <= 3) "moderate" else "high"
-
-  results[[length(results) + 1]] <- data.table(
-    centre           = ctr,
-    navtree          = nav,
-    fmp_node         = fmp,
-    n_imports        = n,
-    import_names     = paste(feeding, collapse = ", "),
-    redundancy_class = rc
-  )
-}
-
-
-}
-
-if (length(results) == 0) {
-message("No FMPs found.")
-return(data.table(centre = character(), navtree = character(),
-fmp_node = character(), n_imports = integer(),
-import_names = character(), redundancy_class = character()))
-}
-
-out <- rbindlist(results)
-setorder(out, n_imports)
-
-message(nrow(out), " FMPs scored: ",
-sum(out$redundancy_class == "none"), " with no imports, ",
-sum(out$redundancy_class == "low"), " low, ",
-sum(out$redundancy_class == "moderate"), " moderate, ",
-sum(out$redundancy_class == "high"), " high redundancy")
-out
+      
+      results[[length(results) + 1]] <- data.table(
+        centre           = ctr,
+        navtree          = nav,
+        fmp_node         = fmp,
+        n_imports        = n,
+        import_names     = paste(feeding, collapse = ", "),
+        redundancy_class = rc
+      )
+    }
+    
+    
+  }
+  
+  if (length(results) == 0) {
+    message("No FMPs found.")
+    return(data.table(centre = character(), navtree = character(),
+                      fmp_node = character(), n_imports = integer(),
+                      import_names = character(), redundancy_class = character()))
+  }
+  
+  out <- rbindlist(results)
+  setorder(out, n_imports)
+  
+  message(nrow(out), " FMPs scored: ",
+          sum(out$redundancy_class == "none"), " with no imports, ",
+          sum(out$redundancy_class == "low"), " low, ",
+          sum(out$redundancy_class == "moderate"), " moderate, ",
+          sum(out$redundancy_class == "high"), " high redundancy")
+  out
 }
 
 #’ Summarise model type coverage by navtree
@@ -1195,40 +1200,40 @@ out
 #’
 #’ @export
 model_type_coverage <- function(national) {
-
-usage <- national$gauge_usage
-
-# Count per navtree per class
-
-counts <- usage[, .N, by = .(centre, navtree, node_class)]
-
-# Pivot wide
-
-wide <- dcast(counts, centre + navtree ~ node_class, value.var = "N",
-fill = 0L)
-
-# Flag navtrees without error correction
-
-if ("ARMA" %in% names(wide)) {
-wide[, has_arma := ARMA > 0]
-} else {
-wide[, has_arma := FALSE]
-}
-
-# Flag navtrees with boundary imports
-
-if ("DataHierarchy" %in% names(wide)) {
-wide[, has_boundary := DataHierarchy > 0]
-} else {
-wide[, has_boundary := FALSE]
-}
-
-setorder(wide, centre, navtree)
-
-message(nrow(wide), " navtrees, ",
-sum(!wide$has_arma), " without ARMA, ",
-sum(wide$has_boundary), " with boundary imports")
-wide
+  
+  usage <- national$gauge_usage
+  
+  # Count per navtree per class
+  
+  counts <- usage[, .N, by = .(centre, navtree, node_class)]
+  
+  # Pivot wide
+  
+  wide <- dcast(counts, centre + navtree ~ node_class, value.var = "N",
+                fill = 0L)
+  
+  # Flag navtrees without error correction
+  
+  if ("ARMA" %in% names(wide)) {
+    wide[, has_arma := ARMA > 0]
+  } else {
+    wide[, has_arma := FALSE]
+  }
+  
+  # Flag navtrees with boundary imports
+  
+  if ("DataHierarchy" %in% names(wide)) {
+    wide[, has_boundary := DataHierarchy > 0]
+  } else {
+    wide[, has_boundary := FALSE]
+  }
+  
+  setorder(wide, centre, navtree)
+  
+  message(nrow(wide), " navtrees, ",
+          sum(!wide$has_arma), " without ARMA, ",
+          sum(wide$has_boundary), " with boundary imports")
+  wide
 }
 
 #’ Rank gauges by criticality
@@ -1261,94 +1266,96 @@ wide
 #’
 #’ @export
 gauge_criticality <- function(national, fwa = NULL,
-weights = c(navtrees = 1, downstream = 1,
-fmps = 2, fwas = 3,
-critical_fwas = 5),
-top_n = NULL) {
-
-imports <- national$nodes[node_class %in% c("Import", "GriddedImport")]$node_name
-if (length(imports) == 0) {
-message("No Import nodes found.")
-return(data.table())
-}
-
-results <- list()
-
-for (gauge in imports) {
-
-
-usage <- national$gauge_usage[node_name == gauge]
-n_nav <- nrow(usage)
-
-# Downstream cascade across all navtrees
-impact <- tryCatch(gauge_impact(national, gauge), error = function(e) NULL)
-
-if (is.null(impact) || nrow(impact$detail) == 0) {
-  n_ds   <- 0L
-  n_fmps <- 0L
-  fmp_nms <- ""
-} else {
-  n_ds    <- nrow(impact$detail)
-  fmp_det <- impact$detail[node_class == "FMP"]
-  n_fmps  <- nrow(fmp_det)
-  fmp_nms <- paste(unique(fmp_det$downstream_node), collapse = ", ")
-}
-
-row <- data.table(
-  node_name    = gauge,
-  n_navtrees   = n_nav,
-  n_downstream = n_ds,
-  n_fmps       = n_fmps,
-  fmp_names    = fmp_nms
-)
-
-# FWA component if lookup provided
-if (!is.null(fwa)) {
-  fi <- tryCatch(
-    fwa_impact(national, fwa, gauge),
-    error = function(e) NULL
-  )
-  if (!is.null(fi) && nrow(fi$fwa_summary) > 0) {
-    row[, n_fwas := nrow(fi$fwa_summary)]
-    row[, n_critical_fwas := sum(fi$fwa_summary$impact_class == "fully_impacted")]
-  } else {
-    row[, c("n_fwas", "n_critical_fwas") := list(0L, 0L)]
+                              weights = c(navtrees = 1, downstream = 1,
+                                          fmps = 2, fwas = 3,
+                                          critical_fwas = 5),
+                              top_n = NULL) {
+  
+  imports <- national$nodes[node_class %in% c("Import", "GriddedImport")]$node_name
+  if (length(imports) == 0) {
+    message("No Import nodes found.")
+    return(data.table())
   }
-}
-
-results[[length(results) + 1]] <- row
-
-
-}
-
-out <- rbindlist(results, fill = TRUE)
-
-# Compute composite score (normalise each component to 0-1, then weight)
-normalise <- function(x) {
-r <- max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
-if (r == 0) rep(0, length(x)) else (x - min(x, na.rm = TRUE)) / r
-}
-
-score <- weights["navtrees"] * normalise(out$n_navtrees) +
-weights["downstream"] * normalise(out$n_downstream) +
-weights["fmps"] * normalise(out$n_fmps)
-
-if ("n_fwas" %in% names(out)) {
-score <- score +
-weights["fwas"] * normalise(out$n_fwas) +
-weights["critical_fwas"] * normalise(out$n_critical_fwas)
-}
-
-# Scale to 0-100
-sr <- max(score, na.rm = TRUE) - min(score, na.rm = TRUE)
-out[, score := if (sr == 0) 0 else round(100 * (score - min(score)) / sr, 1)]
-
-setorder(out, -score)
-
-if (!is.null(top_n)) out <- head(out, top_n)
-
-message(nrow(out), " Import gauges scored")
-out
+  
+  results <- list()
+  
+  for (gauge in imports) {
+    
+    
+    usage <- national$gauge_usage[node_name == gauge]
+    n_nav <- nrow(usage)
+    
+    # Downstream cascade across all navtrees
+    impact <- tryCatch(gauge_impact(national, gauge), error = function(e) NULL)
+    
+    if (is.null(impact) || nrow(impact$detail) == 0) {
+      n_ds   <- 0L
+      n_fmps <- 0L
+      fmp_nms <- ""
+    } else {
+      n_ds    <- nrow(impact$detail)
+      fmp_det <- impact$detail[node_class == "FMP"]
+      n_fmps  <- nrow(fmp_det)
+      fmp_nms <- paste(unique(fmp_det$downstream_node), collapse = ", ")
+    }
+    
+    row <- data.table(
+      node_name    = gauge,
+      n_navtrees   = n_nav,
+      n_downstream = n_ds,
+      n_fmps       = n_fmps,
+      fmp_names    = fmp_nms
+    )
+    
+    # FWA component if lookup provided
+    if (!is.null(fwa)) {
+      fi <- tryCatch(
+        fwa_impact(national, fwa, gauge),
+        error = function(e) NULL
+      )
+      if (!is.null(fi) && nrow(fi$fwa_summary) > 0) {
+        row[, n_fwas := nrow(fi$fwa_summary)]
+        row[, n_critical_fwas := sum(fi$fwa_summary$impact_class == "fully_impacted")]
+      } else {
+        row[, c("n_fwas", "n_critical_fwas") := list(0L, 0L)]
+      }
+    }
+    
+    results[[length(results) + 1]] <- row
+    
+    
+  }
+  
+  out <- rbindlist(results, fill = TRUE)
+  
+  # Compute composite score (normalise each component to 0-1, then weight)
+  
+  normalise <- function(x) {
+    r <- max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
+    if (r == 0) rep(0, length(x)) else (x - min(x, na.rm = TRUE)) / r
+  }
+  
+  score <- weights["navtrees"] * normalise(out$n_navtrees) +
+    weights["downstream"] * normalise(out$n_downstream) +
+    weights["fmps"] * normalise(out$n_fmps)
+  
+  if ("n_fwas" %in% names(out)) {
+    score <- score +
+      weights["fwas"] * normalise(out$n_fwas) +
+      weights["critical_fwas"] * normalise(out$n_critical_fwas)
+  }
+  
+  # Scale to 0-100
+  
+  sr <- max(score, na.rm = TRUE) - min(score, na.rm = TRUE)
+  out[, score := if (sr == 0) 0 else round(100 * (score - min(score)) / sr, 1)]
+  
+  setorder(out, -score)
+  
+  if (!is.null(top_n)) out <- head(out, top_n)
+  
+  message(nrow(out), " Import gauges scored")
+  out
 }
 
 #’ Compute maximum cascade distance per Import gauge
@@ -1369,61 +1376,64 @@ out
 #’
 #’ @export
 cascade_distance <- function(national) {
-
-navtrees <- unique(national$edges[, .(centre, navtree)])
-results  <- list()
-
-for (i in seq_len(nrow(navtrees))) {
-ctr <- navtrees$centre[i]
-nav <- navtrees$navtree[i]
-
-nav_edges <- national$edges[centre == ctr & navtree == nav]
-nav_names <- union(nav_edges$from_name, nav_edges$to_name)
-nav_nodes <- national$nodes[node_name %in% nav_names]
-
-nav_result <- list(
-  edges = nav_edges[, .(from_name, to_name, stroke, dashed)],
-  nodes = nav_nodes
-)
-g <- build_graph(nav_result)
-
-imports <- V(g)[V(g)$node_class %in% c("Import", "GriddedImport")]$name
-fmps    <- V(g)[V(g)$node_class == "FMP"]$name
-
-if (length(imports) == 0 || length(fmps) == 0) next
-
-dists <- distances(g, v = imports, to = fmps, mode = "out")
-
-for (ri in seq_along(imports)) {
-  row_dists <- dists[ri, ]
-  finite    <- is.finite(row_dists)
-  if (!any(finite)) next
-
-  max_d    <- max(row_dists[finite])
-  furthest <- fmps[finite][which.max(row_dists[finite])]
-
-  results[[length(results) + 1]] <- data.table(
-    centre       = ctr,
-    navtree      = nav,
-    import_node  = imports[ri],
-    max_distance = as.integer(max_d),
-    furthest_fmp = furthest
-  )
-}
-
-}
-
-if (length(results) == 0) {
-message("No Import-to-FMP paths found.")
-return(data.table(centre = character(), navtree = character(),
-import_node = character(), max_distance = integer(),
-furthest_fmp = character()))
-}
-
-out <- rbindlist(results)
-setorder(out, -max_distance)
-message(nrow(out), " Import-FMP paths scored")
-out
+  
+  navtrees <- unique(national$edges[, .(centre, navtree)])
+  results  <- list()
+  
+  for (i in seq_len(nrow(navtrees))) {
+    
+    
+    ctr <- navtrees$centre[i]
+    nav <- navtrees$navtree[i]
+    
+    nav_edges <- national$edges[centre == ctr & navtree == nav]
+    nav_names <- union(nav_edges$from_name, nav_edges$to_name)
+    nav_nodes <- national$nodes[node_name %in% nav_names]
+    
+    nav_result <- list(
+      edges = nav_edges[, .(from_name, to_name, stroke, dashed)],
+      nodes = nav_nodes
+    )
+    g <- build_graph(nav_result)
+    
+    imports <- V(g)[V(g)$node_class %in% c("Import", "GriddedImport")]$name
+    fmps    <- V(g)[V(g)$node_class == "FMP"]$name
+    
+    if (length(imports) == 0 || length(fmps) == 0) next
+    
+    dists <- distances(g, v = imports, to = fmps, mode = "out")
+    
+    for (ri in seq_along(imports)) {
+      row_dists <- dists[ri, ]
+      finite    <- is.finite(row_dists)
+      if (!any(finite)) next
+      
+      max_d    <- max(row_dists[finite])
+      furthest <- fmps[finite][which.max(row_dists[finite])]
+      
+      results[[length(results) + 1]] <- data.table(
+        centre       = ctr,
+        navtree      = nav,
+        import_node  = imports[ri],
+        max_distance = as.integer(max_d),
+        furthest_fmp = furthest
+      )
+    }
+    
+    
+  }
+  
+  if (length(results) == 0) {
+    message("No Import-to-FMP paths found.")
+    return(data.table(centre = character(), navtree = character(),
+                      import_node = character(), max_distance = integer(),
+                      furthest_fmp = character()))
+  }
+  
+  out <- rbindlist(results)
+  setorder(out, -max_distance)
+  message(nrow(out), " Import-FMP paths scored")
+  out
 }
 
 #’ Compare two versions of a navtree SVG
@@ -1452,37 +1462,37 @@ out
 #’
 #’ @export
 network_diff <- function(svg_old, svg_new, tol = 5) {
-
-old <- extract_svg_links(svg_old, tol = tol)
-new <- extract_svg_links(svg_new, tol = tol)
-
-# Node diff
-
-nodes_added   <- new$nodes[!node_name %in% old$nodes$node_name]
-nodes_removed <- old$nodes[!node_name %in% new$nodes$node_name]
-
-# Edge diff (keyed on from_name + to_name)
-
-old_key <- old$edges[, .(from_name, to_name)]
-new_key <- new$edges[, .(from_name, to_name)]
-
-old_key[, key := paste(from_name, to_name, sep = "->")]
-new_key[, key := paste(from_name, to_name, sep = "->")]
-
-edges_added   <- new$edges[paste(from_name, to_name, sep = "->") %in%
-setdiff(new_key$key, old_key$key)]
-edges_removed <- old$edges[paste(from_name, to_name, sep = "->") %in%
-setdiff(old_key$key, new_key$key)]
-
-message("Nodes: +", nrow(nodes_added), " / -", nrow(nodes_removed),
-"  Edges: +", nrow(edges_added), " / -", nrow(edges_removed))
-
-list(
-nodes_added   = nodes_added,
-nodes_removed = nodes_removed,
-edges_added   = edges_added,
-edges_removed = edges_removed
-)
+  
+  old <- extract_svg_links(svg_old, tol = tol)
+  new <- extract_svg_links(svg_new, tol = tol)
+  
+  # Node diff
+  
+  nodes_added   <- new$nodes[!node_name %in% old$nodes$node_name]
+  nodes_removed <- old$nodes[!node_name %in% new$nodes$node_name]
+  
+  # Edge diff (keyed on from_name + to_name)
+  
+  old_key <- old$edges[, .(from_name, to_name)]
+  new_key <- new$edges[, .(from_name, to_name)]
+  
+  old_key[, key := paste(from_name, to_name, sep = "->")]
+  new_key[, key := paste(from_name, to_name, sep = "->")]
+  
+  edges_added   <- new$edges[paste(from_name, to_name, sep = "->") %in%
+                               setdiff(new_key$key, old_key$key)]
+  edges_removed <- old$edges[paste(from_name, to_name, sep = "->") %in%
+                               setdiff(old_key$key, new_key$key)]
+  
+  message("Nodes: +", nrow(nodes_added), " / -", nrow(nodes_removed),
+           "  Edges: +", nrow(edges_added), " / -", nrow(edges_removed))
+  
+  list(
+    nodes_added   = nodes_added,
+    nodes_removed = nodes_removed,
+    edges_added   = edges_added,
+    edges_removed = edges_removed
+  )
 }
 
 #’ Generate a national summary report
@@ -1506,199 +1516,212 @@ edges_removed = edges_removed
 #’
 #’ @export
 national_summary_report <- function(national, fwa = NULL,
-output_file = "national_report.md",
-top_n_critical = 20L) {
-
-lines <- character()
-add   <- function(…) lines <<- c(lines, paste0(…))
-blank <- function() lines <<- c(lines, "")
-table_md <- function(dt) {
-if (nrow(dt) == 0) { add("*No data.*"); blank(); return(invisible()) }
-nms <- names(dt)
-add("| ", paste(nms, collapse = " | "), " |")
-add("| ", paste(rep("—", length(nms)), collapse = " | "), " |")
-for (r in seq_len(nrow(dt))) {
-vals <- vapply(nms, function(n) as.character(dt[[n]][r]), character(1))
-add("| ", paste(vals, collapse = " | "), " |")
-}
-blank()
-}
-
-timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M")
-
-# – Header —————————————————————
-add("# National Flood Forecast Network Report")
-add("*Generated: ", timestamp, "*")
-blank()
-
-# – Overview –––––––––––––––––––––––––––––––
-add("## Overview")
-blank()
-
-n_centres  <- uniqueN(national$gauge_usage$centre)
-n_navtrees <- uniqueN(national$gauge_usage[, paste(centre, navtree)])
-n_nodes    <- nrow(national$nodes)
-n_edges    <- nrow(national$edges)
-n_imports  <- sum(national$nodes$node_class %in% c("Import", "GriddedImport"))
-n_fmps     <- sum(national$nodes$node_class == "FMP")
-
-add("- **Centres:** ", n_centres)
-add("- **Navtrees:** ", n_navtrees)
-add("- **Unique nodes:** ", n_nodes, " (", n_imports, " Imports, ", n_fmps, " FMPs)")
-add("- **Edges:** ", n_edges)
-blank()
-
-# – Model type coverage —————————————————
-add("## Model Type Coverage")
-blank()
-
-coverage <- model_type_coverage(national)
-table_md(coverage)
-
-arma_missing <- coverage[has_arma == FALSE]
-if (nrow(arma_missing) > 0) {
-add("**Warning:** ", nrow(arma_missing), " navtree(s) without ARMA error correction:")
-for (r in seq_len(nrow(arma_missing))) {
-add("- ", arma_missing$centre[r], " / ", arma_missing$navtree[r])
-}
-blank()
-}
-
-# – Shared gauges ———————————————————
-add("## Shared Gauges")
-blank()
-
-shared <- shared_gauges(national)
-if (nrow(shared) > 0) {
-table_md(shared[, .(node_name, node_class, n_navtrees, n_centres, centres)])
-} else {
-add("No gauges shared across multiple navtrees.")
-blank()
-}
-
-# – Cross-centre gauges —————————————————
-add("## Cross-Centre Dependencies")
-blank()
-
-xcentre <- cross_centre_gauges(national)
-if (nrow(xcentre) > 0) {
-table_md(xcentre[, .(node_name, node_class, n_centres, centres)])
-} else {
-add("No gauges shared across centres.")
-blank()
-}
-
-# – Gauge criticality —————————————————–
-add("## Top ", top_n_critical, " Critical Gauges")
-blank()
-
-crit <- gauge_criticality(national, fwa = fwa, top_n = top_n_critical)
-show_cols <- c("node_name", "score", "n_navtrees", "n_downstream", "n_fmps")
-if ("n_fwas" %in% names(crit)) {
-show_cols <- c(show_cols, "n_fwas", "n_critical_fwas")
-}
-table_md(crit[, ..show_cols])
-
-# – Cascade distance ——————————————————
-add("## Longest Cascade Distances")
-blank()
-
-cd <- cascade_distance(national)
-if (nrow(cd) > 0) {
-table_md(head(cd, 20))
-} else {
-add("No Import-to-FMP paths found.")
-blank()
-}
-
-# – Orphans —————————————————————
-add("## Orphan / Misconfigured Nodes")
-blank()
-
-orphans <- detect_orphans(national)
-if (nrow(orphans) > 0) {
-table_md(orphans)
-} else {
-add("No orphan nodes detected.")
-blank()
-}
-
-# – FMP redundancy —————————————————––
-add("## FMP Redundancy")
-blank()
-
-red <- fmp_redundancy(national)
-vulnerable <- red[redundancy_class %in% c("none", "low")]
-if (nrow(vulnerable) > 0) {
-add("FMPs with no or low import redundancy:")
-blank()
-table_md(vulnerable[, .(centre, navtree, fmp_node, n_imports,
-redundancy_class, import_names)])
-} else {
-add("All FMPs have moderate or high redundancy.")
-blank()
-}
-
-# – FWA section (optional) ————————————————
-if (!is.null(fwa)) {
-add("## Flood Warning Area Resilience")
-blank()
-
-
-res <- fwa_resilience(fwa)
-add("### Resilience Summary")
-blank()
-add("- **Robust:** ", sum(res$resilience_class == "robust"))
-add("- **Forecast vulnerable:** ", sum(res$resilience_class == "forecast_vulnerable"))
-add("- **Reactive vulnerable:** ", sum(res$resilience_class == "reactive_vulnerable"))
-add("- **Critical:** ", sum(res$resilience_class == "critical"))
-blank()
-
-critical_fwas <- res[resilience_class == "critical"]
-if (nrow(critical_fwas) > 0) {
-  add("### Critical FWAs")
+                                    output_file = "national_report.md",
+                                    top_n_critical = 20L) {
+  
+  env <- new.env(parent = emptyenv())
+  env$lines <- character()
+  
+  add <- function(...) env$lines <- c(env$lines, paste0(...))
+  blank <- function() env$lines <- c(env$lines, "")
+  
+  table_md <- function(dt) {
+    if (nrow(dt) == 0) { add("*No data.*"); blank(); return(invisible()) }
+    nms <- names(dt)
+    add("| ", paste(nms, collapse = " | "), " |")
+    add("| ", paste(rep("—", length(nms)), collapse = " | "), " |")
+    for (r in seq_len(nrow(dt))) {
+      vals <- vapply(nms, function(n) as.character(dt[[n]][r]), character(1))
+      add("| ", paste(vals, collapse = " | "), " |")
+    }
+    blank()
+  }
+  
+  timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M")
+  
+  # – Header —————————————————————
+  
+  add("# National Flood Forecast Network Report")
+  add("*Generated: ", timestamp, "*")
   blank()
-  table_md(critical_fwas[, .(fwa_code, n_forecast, forecast_nodes,
-                             n_observed, observed_nodes)])
-}
-
-
-}
-
-# – Per-centre summaries –––––––––––––––––––––––––
-add("## Centre Summaries")
-blank()
-
-centres <- sort(unique(national$gauge_usage$centre))
-for (ctr in centres) {
-add("### ", ctr)
-blank()
-
-
-ctr_navtrees <- unique(national$gauge_usage[centre == ctr]$navtree)
-ctr_nodes    <- national$gauge_usage[centre == ctr, uniqueN(node_name)]
-ctr_edges    <- national$edges[centre == ctr, .N]
-
-add("- **Navtrees:** ", paste(ctr_navtrees, collapse = ", "))
-add("- **Nodes:** ", ctr_nodes)
-add("- **Edges:** ", ctr_edges)
-blank()
-
-# Orphans in this centre
-ctr_orphans <- orphans[centre == ctr]
-if (nrow(ctr_orphans) > 0) {
-  add("**Issues:** ", nrow(ctr_orphans), " orphan/misconfigured node(s)")
+  
+  # – Overview –––––––––––––––––––––––––––––––
+  
+  add("## Overview")
   blank()
-}
-
-
-}
-
-# – Write —————————————————————–
-
-writeLines(lines, output_file)
-message("Report written to: ", output_file)
-invisible(output_file)
+  
+  n_centres  <- uniqueN(national$gauge_usage$centre)
+  n_navtrees <- uniqueN(national$gauge_usage[, paste(centre, navtree)])
+  n_nodes    <- nrow(national$nodes)
+  n_edges    <- nrow(national$edges)
+  n_imports  <- sum(national$nodes$node_class %in% c("Import", "GriddedImport"))
+  n_fmps     <- sum(national$nodes$node_class == "FMP")
+  
+  add("- **Centres:** ", n_centres)
+  add("- **Navtrees:** ", n_navtrees)
+  add("- **Unique nodes:** ", n_nodes, " (", n_imports, " Imports, ", n_fmps, " FMPs)")
+  add("- **Edges:** ", n_edges)
+  blank()
+  
+  # – Model type coverage —————————————————
+  
+  add("## Model Type Coverage")
+  blank()
+  
+  coverage <- model_type_coverage(national)
+  table_md(coverage)
+  
+  arma_missing <- coverage[has_arma == FALSE]
+  if (nrow(arma_missing) > 0) {
+    add("**Warning:** ", nrow(arma_missing), " navtree(s) without ARMA error correction:")
+    for (r in seq_len(nrow(arma_missing))) {
+      add("- ", arma_missing$centre[r], " / ", arma_missing$navtree[r])
+    }
+    blank()
+  }
+  
+  # – Shared gauges ———————————————————
+  
+  add("## Shared Gauges")
+  blank()
+  
+  shared <- shared_gauges(national)
+  if (nrow(shared) > 0) {
+    table_md(shared[, c("node_name", "node_class", "n_navtrees", "n_centres", "centres"), with = FALSE])
+  } else {
+    add("No gauges shared across multiple navtrees.")
+    blank()
+  }
+  
+  # – Cross-centre gauges —————————————————
+  
+  add("## Cross-Centre Dependencies")
+  blank()
+  
+  xcentre <- cross_centre_gauges(national)
+  if (nrow(xcentre) > 0) {
+    table_md(xcentre[, c("node_name", "node_class", "n_centres", "centres"), with = FALSE])
+  } else {
+    add("No gauges shared across centres.")
+    blank()
+  }
+  
+  # – Gauge criticality —————————————————–
+  
+  add("## Top ", top_n_critical, " Critical Gauges")
+  blank()
+  
+  crit <- gauge_criticality(national, fwa = fwa, top_n = top_n_critical)
+  show_cols <- c("node_name", "score", "n_navtrees", "n_downstream", "n_fmps")
+  if ("n_fwas" %in% names(crit)) {
+    show_cols <- c(show_cols, "n_fwas", "n_critical_fwas")
+  }
+  table_md(crit[, show_cols, with = FALSE])
+  
+  # – Cascade distance ——————————————————
+  
+  add("## Longest Cascade Distances")
+  blank()
+  
+  cd <- cascade_distance(national)
+  if (nrow(cd) > 0) {
+    table_md(head(cd, 20))
+  } else {
+    add("No Import-to-FMP paths found.")
+    blank()
+  }
+  
+  # – Orphans —————————————————————
+  
+  add("## Orphan / Misconfigured Nodes")
+  blank()
+  
+  orphans <- detect_orphans(national)
+  if (nrow(orphans) > 0) {
+    table_md(orphans)
+  } else {
+    add("No orphan nodes detected.")
+    blank()
+  }
+  
+  # – FMP redundancy —————————————————––
+  
+  add("## FMP Redundancy")
+  blank()
+  
+  red <- fmp_redundancy(national)
+  vulnerable <- red[redundancy_class %in% c("none", "low")]
+  if (nrow(vulnerable) > 0) {
+    add("FMPs with no or low import redundancy:")
+    blank()
+    table_md(vulnerable[, c("centre", "navtree", "fmp_node", "n_imports",
+                            "redundancy_class", "import_names"), with = FALSE])
+  } else {
+    add("All FMPs have moderate or high redundancy.")
+    blank()
+  }
+  
+  # – FWA section (optional) ————————————————
+  
+  if (!is.null(fwa)) {
+    add("## Flood Warning Area Resilience")
+    blank()
+    
+    
+    res <- fwa_resilience(fwa)
+    add("### Resilience Summary")
+    blank()
+    add("- **Robust:** ", sum(res$resilience_class == "robust"))
+    add("- **Forecast vulnerable:** ", sum(res$resilience_class == "forecast_vulnerable"))
+    add("- **Reactive vulnerable:** ", sum(res$resilience_class == "reactive_vulnerable"))
+    add("- **Critical:** ", sum(res$resilience_class == "critical"))
+    blank()
+    
+    critical_fwas <- res[resilience_class == "critical"]
+    if (nrow(critical_fwas) > 0) {
+      add("### Critical FWAs")
+      blank()
+      table_md(critical_fwas[, c("fwa_code", "n_forecast", "forecast_nodes",
+                                 "n_observed", "observed_nodes"), with = FALSE])
+    }
+    
+    
+  }
+  
+  # – Per-centre summaries –––––––––––––––––––––––––
+  
+  add("## Centre Summaries")
+  blank()
+  
+  centres <- sort(unique(national$gauge_usage$centre))
+  for (ctr in centres) {
+    add("### ", ctr)
+    blank()
+    
+    
+    ctr_navtrees <- unique(national$gauge_usage[centre == ctr]$navtree)
+    ctr_nodes    <- national$gauge_usage[centre == ctr, uniqueN(node_name)]
+    ctr_edges    <- national$edges[centre == ctr, .N]
+    
+    add("- **Navtrees:** ", paste(ctr_navtrees, collapse = ", "))
+    add("- **Nodes:** ", ctr_nodes)
+    add("- **Edges:** ", ctr_edges)
+    blank()
+    
+    ctr_orphans <- orphans[centre == ctr]
+    if (nrow(ctr_orphans) > 0) {
+      add("**Issues:** ", nrow(ctr_orphans), " orphan/misconfigured node(s)")
+      blank()
+    }
+    
+    
+  }
+  
+  # – Write —————————————————————–
+  
+  writeLines(env$lines, output_file)
+  message("Report written to: ", output_file)
+  invisible(output_file)
 }
 
 # =============================================================================
@@ -1735,41 +1758,41 @@ invisible(output_file)
 #’
 #’ @export
 load_fwa_lookup <- function(csv_file, national = NULL) {
-
-fwa <- fread(csv_file)
-
-required <- c("node_name", "fwa_code", "association")
-missing  <- setdiff(required, names(fwa))
-if (length(missing) > 0) {
-stop("Missing columns: ", paste(missing, collapse = ", "),
-". Required: node_name, fwa_code, association")
-}
-
-fwa <- fwa[, ..required]
-fwa[, association := tolower(trimws(association))]
-
-bad_assoc <- setdiff(unique(fwa$association), c("forecast", "observed"))
-if (length(bad_assoc) > 0) {
-stop("Invalid association values: ", paste(bad_assoc, collapse = ", "),
-". Must be ‘forecast’ or ‘observed’.")
-}
-
-if (!is.null(national)) {
-unknown <- setdiff(fwa$node_name, national$nodes$node_name)
-if (length(unknown) > 0) {
-warning(length(unknown), " node name(s) in lookup not found in national ",
-"network: ", paste(head(unknown, 10), collapse = ", "),
-if (length(unknown) > 10) "…" else "")
-}
-}
-
-n_fwa <- uniqueN(fwa$fwa_code)
-n_fc  <- sum(fwa$association == "forecast")
-n_ob  <- sum(fwa$association == "observed")
-message("Loaded: ", n_fwa, " FWAs, ", n_fc, " forecast links, ",
-n_ob, " observed links")
-
-fwa
+  
+  fwa <- fread(csv_file)
+  
+  required <- c("node_name", "fwa_code", "association")
+  missing  <- setdiff(required, names(fwa))
+  if (length(missing) > 0) {
+    stop("Missing columns: ", paste(missing, collapse = ", "),
+          ". Required: node_name, fwa_code, association")
+  }
+  
+  fwa <- fwa[, required, with = FALSE]
+  fwa[, association := tolower(trimws(association))]
+  
+  bad_assoc <- setdiff(unique(fwa$association), c("forecast", "observed"))
+  if (length(bad_assoc) > 0) {
+    stop("Invalid association values: ", paste(bad_assoc, collapse = ", "),
+          ". Must be ‘forecast’ or ‘observed’.")
+  }
+  
+  if (!is.null(national)) {
+    unknown <- setdiff(fwa$node_name, national$nodes$node_name)
+    if (length(unknown) > 0) {
+      warning(length(unknown), " node name(s) in lookup not found in national ",
+              "network: ", paste(head(unknown, 10), collapse = ", "),
+              if (length(unknown) > 10) "..." else "")
+    }
+  }
+  
+  n_fwa <- uniqueN(fwa$fwa_code)
+  n_fc  <- sum(fwa$association == "forecast")
+  n_ob  <- sum(fwa$association == "observed")
+  message("Loaded: ", n_fwa, " FWAs, ", n_fc, " forecast links, ",
+           n_ob, " observed links")
+  
+  fwa
 }
 
 #’ Score baseline resilience of each Flood Warning Area
@@ -1800,39 +1823,39 @@ fwa
 #’
 #’ @export
 fwa_resilience <- function(fwa) {
-
-fc <- fwa[association == "forecast", .(
-n_forecast     = .N,
-forecast_nodes = paste(node_name, collapse = ", ")
-), by = fwa_code]
-
-ob <- fwa[association == "observed", .(
-n_observed     = .N,
-observed_nodes = paste(node_name, collapse = ", ")
-), by = fwa_code]
-
-all_fwas <- data.table(fwa_code = unique(fwa$fwa_code))
-out <- merge(all_fwas, fc, by = "fwa_code", all.x = TRUE)
-out <- merge(out, ob, by = "fwa_code", all.x = TRUE)
-
-out[is.na(n_forecast), c("n_forecast", "forecast_nodes") := list(0L, "")]
-out[is.na(n_observed), c("n_observed", "observed_nodes") := list(0L, "")]
-
-out[, resilience_class := fcase(
-n_forecast >= 2 & n_observed >= 2, "robust",
-n_forecast <= 1 & n_observed >= 2, "forecast_vulnerable",
-n_forecast >= 2 & n_observed <= 1, "reactive_vulnerable",
-default = "critical"
-)]
-
-setorder(out, resilience_class, fwa_code)
-
-message(nrow(out), " FWAs: ",
-sum(out$resilience_class == "critical"), " critical, ",
-sum(out$resilience_class == "forecast_vulnerable"), " forecast-vulnerable, ",
-sum(out$resilience_class == "reactive_vulnerable"), " reactive-vulnerable, ",
-sum(out$resilience_class == "robust"), " robust")
-out
+  
+  fc <- fwa[association == "forecast", .(
+    n_forecast     = .N,
+    forecast_nodes = paste(node_name, collapse = ", ")
+  ), by = fwa_code]
+  
+  ob <- fwa[association == "observed", .(
+    n_observed     = .N,
+    observed_nodes = paste(node_name, collapse = ", ")
+  ), by = fwa_code]
+  
+  all_fwas <- data.table(fwa_code = unique(fwa$fwa_code))
+  out <- merge(all_fwas, fc, by = "fwa_code", all.x = TRUE)
+  out <- merge(out, ob, by = "fwa_code", all.x = TRUE)
+  
+  out[is.na(n_forecast), c("n_forecast", "forecast_nodes") := list(0L, "")]
+  out[is.na(n_observed), c("n_observed", "observed_nodes") := list(0L, "")]
+  
+  out[, resilience_class := fcase(
+    n_forecast >= 2 & n_observed >= 2, "robust",
+    n_forecast <= 1 & n_observed >= 2, "forecast_vulnerable",
+    n_forecast >= 2 & n_observed <= 1, "reactive_vulnerable",
+    default = "critical"
+  )]
+  
+  setorder(out, resilience_class, fwa_code)
+  
+  message(nrow(out), " FWAs: ",
+          sum(out$resilience_class == "critical"), " critical, ",
+          sum(out$resilience_class == "forecast_vulnerable"), " forecast-vulnerable, ",
+          sum(out$resilience_class == "reactive_vulnerable"), " reactive-vulnerable, ",
+          sum(out$resilience_class == "robust"), " robust")
+  out
 }
 
 #’ Assess FWA impact of a gauge outage
@@ -1874,90 +1897,85 @@ out
 #’
 #’ @export
 fwa_impact <- function(national, fwa, gauge) {
-
-# 1. Find all nodes knocked out by this gauge failure
-
-# The gauge itself + everything downstream of it in every navtree
-
-impact <- gauge_impact(national, gauge)
-affected_nodes <- union(gauge, impact$detail$downstream_node)
-
-# 2. Find all FWAs linked to any affected node
-
-fwa_affected <- fwa[node_name %in% affected_nodes]
-
-if (nrow(fwa_affected) == 0) {
-message("No FWAs directly affected by ‘", gauge, "’")
-return(list(
-fwa_summary = data.table(fwa_code = character(), impact_class = character(),
-forecast_total = integer(), forecast_lost = integer(),
-observed_total = integer(), observed_lost = integer()),
-node_detail = data.table(fwa_code = character(), node_name = character(),
-association = character(), status = character())
-))
-}
-
-affected_fwa_codes <- unique(fwa_affected$fwa_code)
-
-# 3. For each affected FWA, classify impact
-
-all_links <- fwa[fwa_code %in% affected_fwa_codes]
-all_links[, status := fifelse(node_name %in% affected_nodes, "lost", "ok")]
-
-summary_list <- list()
-for (code in affected_fwa_codes) {
-links <- all_links[fwa_code == code]
-
-
-fc_total <- sum(links$association == "forecast")
-fc_lost  <- sum(links$association == "forecast" & links$status == "lost")
-ob_total <- sum(links$association == "observed")
-ob_lost  <- sum(links$association == "observed" & links$status == "lost")
-
-fc_remaining <- fc_total - fc_lost
-ob_remaining <- ob_total - ob_lost
-
-impact_class <- if (fc_remaining == 0 && ob_remaining == 0) {
-  "fully_impacted"
-} else if (fc_remaining == 0 && ob_remaining > 0) {
-  "forecast_lost"
-} else if (fc_lost > 0 && fc_remaining > 0) {
-  "forecast_degraded"
-} else {
-  "reactive_degraded"
-}
-
-summary_list[[length(summary_list) + 1]] <- data.table(
-  fwa_code       = code,
-  impact_class   = impact_class,
-  forecast_total = fc_total,
-  forecast_lost  = fc_lost,
-  observed_total = ob_total,
-  observed_lost  = ob_lost
-)
-
-
-}
-
-fwa_summary <- rbindlist(summary_list)
-
-# Order by severity
-
-severity_order <- c("fully_impacted", "forecast_lost",
-"forecast_degraded", "reactive_degraded")
-fwa_summary[, impact_class := factor(impact_class, levels = severity_order)]
-setorder(fwa_summary, impact_class)
-fwa_summary[, impact_class := as.character(impact_class)]
-
-node_detail <- all_links[, .(fwa_code, node_name, association, status)]
-
-message("Gauge ‘", gauge, "’: ",
-sum(fwa_summary$impact_class == "fully_impacted"), " FWA(s) fully impacted, ",
-sum(fwa_summary$impact_class == "forecast_lost"), " forecast lost, ",
-sum(fwa_summary$impact_class == "forecast_degraded"), " forecast degraded, ",
-sum(fwa_summary$impact_class == "reactive_degraded"), " reactive degraded")
-
-list(fwa_summary = fwa_summary, node_detail = node_detail)
+  
+  # 1. Find all nodes knocked out by this gauge failure
+  # The gauge itself + everything downstream of it in every navtree
+  impact <- gauge_impact(national, gauge)
+  affected_nodes <- union(gauge, impact$detail$downstream_node)
+  
+  # 2. Find all FWAs linked to any affected node
+  fwa_affected <- fwa[node_name %in% affected_nodes]
+  
+  if (nrow(fwa_affected) == 0) {
+    message("No FWAs directly affected by ‘", gauge, "’")
+    return(list(
+      fwa_summary = data.table(fwa_code = character(), impact_class = character(),
+                               forecast_total = integer(), forecast_lost = integer(),
+                               observed_total = integer(), observed_lost = integer()),
+      node_detail = data.table(fwa_code = character(), node_name = character(),
+                               association = character(), status = character())
+    ))
+  }
+  
+  affected_fwa_codes <- unique(fwa_affected$fwa_code)
+  
+  # 3. For each affected FWA, classify impact
+  all_links <- fwa[fwa_code %in% affected_fwa_codes]
+  all_links[, status := fifelse(node_name %in% affected_nodes, "lost", "ok")]
+  
+  summary_list <- list()
+  for (code in affected_fwa_codes) {
+    links <- all_links[fwa_code == code]
+    
+    
+    fc_total <- sum(links$association == "forecast")
+    fc_lost  <- sum(links$association == "forecast" & links$status == "lost")
+    ob_total <- sum(links$association == "observed")
+    ob_lost  <- sum(links$association == "observed" & links$status == "lost")
+    
+    fc_remaining <- fc_total - fc_lost
+    ob_remaining <- ob_total - ob_lost
+    
+    impact_class <- if (fc_remaining == 0 && ob_remaining == 0) {
+      "fully_impacted"
+    } else if (fc_remaining == 0 && ob_remaining > 0) {
+      "forecast_lost"
+    } else if (fc_lost > 0 && fc_remaining > 0) {
+      "forecast_degraded"
+    } else {
+      "reactive_degraded"
+    }
+    
+    summary_list[[length(summary_list) + 1]] <- data.table(
+      fwa_code       = code,
+      impact_class   = impact_class,
+      forecast_total = fc_total,
+      forecast_lost  = fc_lost,
+      observed_total = ob_total,
+      observed_lost  = ob_lost
+    )
+    
+    
+  }
+  
+  fwa_summary <- rbindlist(summary_list)
+  
+  # Order by severity
+  severity_order <- c("fully_impacted", "forecast_lost",
+                       "forecast_degraded", "reactive_degraded")
+  fwa_summary[, impact_class := factor(impact_class, levels = severity_order)]
+  setorder(fwa_summary, impact_class)
+  fwa_summary[, impact_class := as.character(impact_class)]
+  
+  node_detail <- all_links[, .(fwa_code, node_name, association, status)]
+  
+  message("Gauge ‘", gauge, "’: ",
+           sum(fwa_summary$impact_class == "fully_impacted"), " FWA(s) fully impacted, ",
+           sum(fwa_summary$impact_class == "forecast_lost"), " forecast lost, ",
+           sum(fwa_summary$impact_class == "forecast_degraded"), " forecast degraded, ",
+           sum(fwa_summary$impact_class == "reactive_degraded"), " reactive degraded")
+  
+  list(fwa_summary = fwa_summary, node_detail = node_detail)
 }
 
 #’ Assess FWA impact of multiple simultaneous gauge outages
@@ -1980,102 +1998,103 @@ list(fwa_summary = fwa_summary, node_detail = node_detail)
 #’
 #’ @export
 fwa_impact_multi <- function(national, fwa, gauges) {
-
-all_affected <- character()
-
-for (gauge in gauges) {
-if (!gauge %in% national$nodes$node_name) {
-warning("Gauge ‘", gauge, "’ not found - skipping")
-next
-}
-impact <- gauge_impact(national, gauge)
-all_affected <- union(all_affected,
-union(gauge, impact$detail$downstream_node))
-}
-
-if (length(all_affected) == 0) {
-message("No nodes affected by these gauges")
-return(list(
-fwa_summary = data.table(fwa_code = character(), impact_class = character(),
-forecast_total = integer(), forecast_lost = integer(),
-observed_total = integer(), observed_lost = integer()),
-node_detail = data.table(fwa_code = character(), node_name = character(),
-association = character(), status = character())
-))
-}
-
-fwa_affected <- fwa[node_name %in% all_affected]
-if (nrow(fwa_affected) == 0) {
-message("No FWAs directly affected")
-return(list(
-fwa_summary = data.table(fwa_code = character(), impact_class = character(),
-forecast_total = integer(), forecast_lost = integer(),
-observed_total = integer(), observed_lost = integer()),
-node_detail = data.table(fwa_code = character(), node_name = character(),
-association = character(), status = character())
-))
-}
-
-affected_fwa_codes <- unique(fwa_affected$fwa_code)
-all_links <- fwa[fwa_code %in% affected_fwa_codes]
-all_links[, status := fifelse(node_name %in% all_affected, "lost", "ok")]
-
-summary_list <- list()
-for (code in affected_fwa_codes) {
-links <- all_links[fwa_code == code]
-
-
-fc_total <- sum(links$association == "forecast")
-fc_lost  <- sum(links$association == "forecast" & links$status == "lost")
-ob_total <- sum(links$association == "observed")
-ob_lost  <- sum(links$association == "observed" & links$status == "lost")
-
-fc_remaining <- fc_total - fc_lost
-ob_remaining <- ob_total - ob_lost
-
-impact_class <- if (fc_remaining == 0 && ob_remaining == 0) {
-  "fully_impacted"
-} else if (fc_remaining == 0 && ob_remaining > 0) {
-  "forecast_lost"
-} else if (fc_lost > 0 && fc_remaining > 0) {
-  "forecast_degraded"
-} else {
-  "reactive_degraded"
-}
-
-summary_list[[length(summary_list) + 1]] <- data.table(
-  fwa_code       = code,
-  impact_class   = impact_class,
-  forecast_total = fc_total,
-  forecast_lost  = fc_lost,
-  observed_total = ob_total,
-  observed_lost  = ob_lost
-)
-
-
-}
-
-fwa_summary <- rbindlist(summary_list)
-severity_order <- c("fully_impacted", "forecast_lost",
-"forecast_degraded", "reactive_degraded")
-fwa_summary[, impact_class := factor(impact_class, levels = severity_order)]
-setorder(fwa_summary, impact_class)
-fwa_summary[, impact_class := as.character(impact_class)]
-
-node_detail <- all_links[, .(fwa_code, node_name, association, status)]
-
-message("Gauges: ", paste(gauges, collapse = ", "), " — ",
-sum(fwa_summary$impact_class == "fully_impacted"), " FWA(s) fully impacted, ",
-sum(fwa_summary$impact_class == "forecast_lost"), " forecast lost, ",
-sum(fwa_summary$impact_class == "forecast_degraded"), " forecast degraded, ",
-sum(fwa_summary$impact_class == "reactive_degraded"), " reactive degraded")
-
-list(fwa_summary = fwa_summary, node_detail = node_detail)
+  
+  all_affected <- character()
+  
+  for (gauge in gauges) {
+    if (!gauge %in% national$nodes$node_name) {
+      warning("Gauge ‘", gauge, "’ not found - skipping")
+      next
+    }
+    impact <- gauge_impact(national, gauge)
+    all_affected <- union(all_affected,
+                          union(gauge, impact$detail$downstream_node))
+  }
+  
+  if (length(all_affected) == 0) {
+    message("No nodes affected by these gauges")
+    return(list(
+      fwa_summary = data.table(fwa_code = character(), impact_class = character(),
+                               forecast_total = integer(), forecast_lost = integer(),
+                               observed_total = integer(), observed_lost = integer()),
+      node_detail = data.table(fwa_code = character(), node_name = character(),
+                               association = character(), status = character())
+    ))
+  }
+  
+  fwa_affected <- fwa[node_name %in% all_affected]
+  if (nrow(fwa_affected) == 0) {
+    message("No FWAs directly affected")
+    return(list(
+      fwa_summary = data.table(fwa_code = character(), impact_class = character(),
+                               forecast_total = integer(), forecast_lost = integer(),
+                               observed_total = integer(), observed_lost = integer()),
+      node_detail = data.table(fwa_code = character(), node_name = character(),
+                               association = character(), status = character())
+    ))
+  }
+  
+  affected_fwa_codes <- unique(fwa_affected$fwa_code)
+  all_links <- fwa[fwa_code %in% affected_fwa_codes]
+  all_links[, status := fifelse(node_name %in% all_affected, "lost", "ok")]
+  
+  summary_list <- list()
+  for (code in affected_fwa_codes) {
+    links <- all_links[fwa_code == code]
+    
+    
+    fc_total <- sum(links$association == "forecast")
+    fc_lost  <- sum(links$association == "forecast" & links$status == "lost")
+    ob_total <- sum(links$association == "observed")
+    ob_lost  <- sum(links$association == "observed" & links$status == "lost")
+    
+    fc_remaining <- fc_total - fc_lost
+    ob_remaining <- ob_total - ob_lost
+    
+    impact_class <- if (fc_remaining == 0 && ob_remaining == 0) {
+      "fully_impacted"
+    } else if (fc_remaining == 0 && ob_remaining > 0) {
+      "forecast_lost"
+    } else if (fc_lost > 0 && fc_remaining > 0) {
+      "forecast_degraded"
+    } else {
+      "reactive_degraded"
+    }
+    
+    summary_list[[length(summary_list) + 1]] <- data.table(
+      fwa_code       = code,
+      impact_class   = impact_class,
+      forecast_total = fc_total,
+      forecast_lost  = fc_lost,
+      observed_total = ob_total,
+      observed_lost  = ob_lost
+    )
+    
+    
+  }
+  
+  fwa_summary <- rbindlist(summary_list)
+  severity_order <- c("fully_impacted", "forecast_lost",
+                       "forecast_degraded", "reactive_degraded")
+  fwa_summary[, impact_class := factor(impact_class, levels = severity_order)]
+  setorder(fwa_summary, impact_class)
+  fwa_summary[, impact_class := as.character(impact_class)]
+  
+  node_detail <- all_links[, .(fwa_code, node_name, association, status)]
+  
+  message("Gauges: ", paste(gauges, collapse = ", "), " — ",
+           sum(fwa_summary$impact_class == "fully_impacted"), " FWA(s) fully impacted, ",
+           sum(fwa_summary$impact_class == "forecast_lost"), " forecast lost, ",
+           sum(fwa_summary$impact_class == "forecast_degraded"), " forecast degraded, ",
+           sum(fwa_summary$impact_class == "reactive_degraded"), " reactive degraded")
+  
+  list(fwa_summary = fwa_summary, node_detail = node_detail)
 }
 
 # =============================================================================
 # Usage (national)
 # =============================================================================
+
 # national <- extract_national_network("C:/path/to/networks")
 # 
 # # Three output tables
