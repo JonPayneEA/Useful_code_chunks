@@ -93,7 +93,7 @@ if (length(tspans) == 0) return(NA_character_)
 trimws(xml_text(tspans[[length(tspans)]]))
 }
 
-strip_node_prefix <- function(cls) sub("^node\s+", "", cls)
+strip_node_prefix <- function(cls) sub(r"(^node\s+)", "", cls)
 shared_id         <- function(id)  sub("/.*$", "", id)
 
 # – 1. Ports (one row per connection point) —————————––
