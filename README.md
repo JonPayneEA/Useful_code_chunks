@@ -4,13 +4,188 @@ This repository contains a collection of useful code snippets and functions acro
 
 ## Comprehensive Function List
 
-### FMP_Node_Geometry.R
-Parsers for Flood Modeller Pro (FMP) spatial files. Returns `sf` objects in EPSG:27700 (British National Grid).
+### FMP_DAT.R
+Full R6 model API for Flood Modeller Pro `.dat` files. Mirrors the Python `floodmodeller-api` `DAT` class — parse, inspect, navigate, edit, and plot any FMP 1D hydraulic model entirely in R.
 
-- **parse_gxy():** Parses `.gxy` files to LINESTRING sf (spatial features) per reach
-- **parse_dat():** Parses `.dat` files to POINT sf per node, or optionally LINESTRING per reach
-- **model_geometry():** Wrapper that tries GXY first, falls back to DAT, and attaches `model_id`
-- **batch_model_geometry():** Applies `model_geometry()` across a data frame of multiple models
+#### Quick start
+
+```r
+source("FMP_DAT.R")
+
+dat <- DAT$new("EX3.DAT")
+print(dat)
+#> ── Flood Modeller DAT ──────────────────────────────────────────
+#> ℹ File: EX3.DAT
+#> ℹ Title: Example Model 3
+#> ℹ Units: SI  |  Nodes: 41
+#> ℹ Sections:    38
+#> ℹ Boundaries:  3
+#> ℹ Structures:  1
+#> ...
+```
+
+#### Accessing units
+
+```r
+# List all section labels
+names(dat$sections)
+#> [1] "m60" "m40" "m20" "0" "20" ... "700"
+
+# Get cross-section data for one section
+dat$sections[["m60"]]$data$cross_section
+#>     offset elevation n_value panel
+#>  1: -20.00     8.50   0.035     0
+#>  2: -15.00     6.20   0.035     0
+#>  ...
+
+# List all boundary conditions
+names(dat$boundaries)
+#> [1] "INFLOW" "TIDAL"
+
+# Get flow time-series for a boundary
+dat$boundaries[["INFLOW"]]$data$time_series
+#>     flow time
+#>  1:  0.5    0
+#>  2:  1.2    1
+#>  ...
+
+# Access a bridge's opening geometry
+dat$structures[["BRIDU"]]$data$opening
+#>       x     z width
+#>  1:  0.0  3.5   8.0
+#>  2:  8.0  3.5   8.0
+```
+
+#### Model metadata
+
+```r
+# General solver parameters
+dat$general_parameters$lower_froude   # 0.75
+dat$general_parameters$upper_froude   # 0.90
+dat$general_parameters$units          # "SI"
+dat$general_parameters$node_count     # 41
+
+# Initial conditions table (data.table)
+dat$initial_conditions
+#>     label easting northing flow stage ...
+#>  1:   m60      NA       NA    0     0
+#>  ...
+```
+
+#### Network navigation
+
+```r
+# Find downstream unit
+sec <- dat$sections[["m60"]]
+dat$next_unit(sec)          # returns the m40 section
+
+# Find upstream unit
+dat$prev_unit(sec)          # returns the INFLOW boundary (or NULL if start of reach)
+
+# Navigate a reach
+unit <- dat$sections[["0"]]
+repeat {
+  cat(unit$name, "\n")
+  unit <- dat$next_unit(unit)
+  if (is.null(unit) || unit$unit != "RIVER") break
+}
+```
+
+#### Network graph
+
+```r
+net <- dat$get_network()
+length(net$nodes)   # total non-comment units
+length(net$edges)   # directed connections
+
+# Inspect edges
+net$edges[[1]]$from$name   # upstream unit name
+net$edges[[1]]$to$name     # downstream unit name
+
+# Use with igraph (if installed)
+library(igraph)
+g <- graph_from_edgelist(
+  do.call(rbind, lapply(net$edges, function(e) c(e$from$name, e$to$name)))
+)
+plot(g)
+```
+
+#### Editing units in memory
+
+```r
+# Remove a unit
+bad_sec <- dat$sections[["700"]]
+dat$remove_unit(bad_sec)
+
+# Insert a new unit before an existing one
+new_sec <- .new_unit(
+  name         = "350",
+  unit_type    = "RIVER",
+  subtype      = "SECTION",
+  dist_to_next = 50,
+  data         = list(cross_section = data.table(
+    offset    = c(-10, 0, 10),
+    elevation = c(5.0, 3.0, 5.0),
+    n_value   = c(0.035, 0.035, 0.035),
+    panel     = c(0, 0, 0)
+  ))
+)
+ref <- dat$sections[["300"]]
+dat$insert_unit(new_sec, add_after = ref)
+
+# Confirm insertion
+names(dat$sections)
+```
+
+#### Comparing two models
+
+```r
+dat_v1 <- DAT$new("EX3_v1.DAT")
+dat_v2 <- DAT$new("EX3_v2.DAT")
+dat_v1$diff(dat_v2)
+#> ! 2 difference(s) found:
+#>    sections[['m60']]$data
+#>    general_parameters
+```
+
+#### ggplot2 plots
+
+```r
+# Cross-section profile
+dat$plot_section("m60")
+
+# Boundary condition time-series
+dat$plot_boundary("INFLOW")
+
+# Bed elevation long-section (all sections with numeric chainages)
+dat$plot_long_section()
+
+# Bridge opening geometry
+dat$plot_bridge("BRIDU")
+
+# 1D network schematic  (install ggrepel for non-overlapping labels)
+dat$plot_network()
+
+# Functional-style equivalents
+plot_section(dat, "m60")
+plot_long_section(dat)
+```
+
+**Methods:** `$new()`, `$print()`, `$next_unit()`, `$prev_unit()`, `$insert_unit()`, `$remove_unit()`, `$get_network()`, `$diff()`, `$plot_section()`, `$plot_boundary()`, `$plot_long_section()`, `$plot_bridge()`, `$plot_network()`, `$all_units()`
+
+**Unit groups:** `$sections` · `$boundaries` · `$structures` · `$conduits` · `$connectors` · `$losses` · `$controls`
+
+**Dependencies:** `R6`, `data.table`, `cli`, `ggplot2` — optional: `ggrepel` (nicer network labels)
+
+---
+
+### FMP_Node_Geometry.R
+Spatial parsers for Flood Modeller Pro files. Returns `sf` objects in EPSG:27700 (British National Grid). Use `FMP_DAT.R` for hydraulic model content; use these functions when you need GIS geometry.
+
+- **parse_gxy():** Parses `.gxy` files → LINESTRING sf per reach
+- **parse_dat(as_lines = TRUE):** Parses `.dat` files → LINESTRING sf per reach (spatial fallback when no GXY exists); used internally by `model_geometry()`
+- **model_geometry():** Wrapper that tries GXY first, falls back to `parse_dat(as_lines = TRUE)`, attaches `model_id` and `source` columns
+- **batch_model_geometry():** Applies `model_geometry()` across a data.table of multiple models
 
 **Dependencies:** `sf`, `data.table`, `cli`
 
