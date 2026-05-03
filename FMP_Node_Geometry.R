@@ -304,18 +304,19 @@ parse_dat <- function(path, as_lines = FALSE) {
     geoms[[i]] <- st_linestring(coords)
   }
 
-  if (n_points > 0L) {
-    cli_warn(
-      "{n_points} node{?s} could not be connected into a line (single-node reach group{?s}); returned as point{?s}."
-    )
-  }
-
   out <- st_sf(
     reach_id = group_ids,
     geometry = st_sfc(geoms, crs = use_crs)
   )
 
-  cli_inform("Connected nodes into {nrow(out)} reach line(s).")
+  n_lines <- length(groups) - n_points
+  if (n_lines > 0L && n_points > 0L) {
+    cli_inform("Parsed {n_lines} reach line{?s} and {n_points} isolated point{?s} from DAT.")
+  } else if (n_lines > 0L) {
+    cli_inform("Parsed {n_lines} reach line{?s} from DAT.")
+  } else {
+    cli_inform("Parsed {n_points} node{?s} from DAT (no multi-node reaches; returned as points).")
+  }
   out
 }
 
