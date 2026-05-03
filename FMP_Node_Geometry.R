@@ -277,24 +277,37 @@ parse_dat <- function(path, as_lines = FALSE) {
   }
 
   # --- Connect nodes into lines per reach ---
-  # Group label by stripping trailing numeric suffix to get a reach group.
-  # e.g. "AVON_001", "AVON_002" -> reach_group "AVON"
-  dt[, reach_group := sub("_?\\d+$", "", label)]
+  # Group labels into a reach only when 2+ labels in dt share the same stripped
+  # prefix. A sole holder of a prefix keeps its original label as group name,
+  # avoiding spurious groups like "m" (from "m60") or "" (from "700").
+  stripped      <- sub("_?\\d+$", "", dt$label)
+  prefix_counts <- table(stripped)
+  dt[, reach_group := {
+    s <- sub("_?\\d+$", "", label)
+    ifelse(prefix_counts[s] >= 2L, s, label)
+  }]
 
   groups <- split(dt, dt$reach_group)
 
   geoms      <- vector("list", length(groups))
   group_ids  <- names(groups)
+  n_points   <- 0L
 
   for (i in seq_along(groups)) {
     g <- groups[[i]]
     if (nrow(g) < 2L) {
-      cli_warn("Reach group {.val {group_ids[i]}} has only 1 node; returned as point.")
+      n_points   <- n_points + 1L
       geoms[[i]] <- st_point(c(g$x[1L], g$y[1L]))
       next
     }
-    coords    <- as.matrix(g[, .(x, y)])
+    coords     <- as.matrix(g[, .(x, y)])
     geoms[[i]] <- st_linestring(coords)
+  }
+
+  if (n_points > 0L) {
+    cli_warn(
+      "{n_points} node{?s} could not be connected into a line (single-node reach group{?s}); returned as point{?s}."
+    )
   }
 
   out <- st_sf(
