@@ -30,8 +30,10 @@ library(cli)
 # Each entry has the form:
 #   <unit_keyword(s)> <label> <x_screen> <y_screen> <x_gis> <y_gis> <visible>
 # The label is always the token immediately before the 5 trailing numeric fields.
-# Returns data.table(label, chainage, x, y) with BNG GIS coordinates, or NULL
-# when the block is absent or all GIS coordinate fields are zero.
+# Returns data.table(label, chainage, x, y, coord_source) or NULL.
+# coord_source is "gis" when real-world BNG coordinates are available, or
+# "screen" when falling back to GUI schematic positions (un-georeferenced model).
+# Returns NULL when the block is absent or all positions (GIS and screen) are zero.
 .extract_gisinfo_coords <- function(lines) {
   gi_start <- which(toupper(trimws(lines)) == "GISINFO")
   if (length(gi_start) == 0L) return(NULL)
@@ -46,17 +48,30 @@ library(cli)
     nums <- suppressWarnings(as.numeric(tail(tokens, 5L)))
     if (anyNA(nums)) next
     label <- tokens[length(tokens) - 5L]
-    results[[i]] <- data.table(label = label, x_gis = nums[3L], y_gis = nums[4L])
+    results[[i]] <- data.table(
+      label    = label,
+      x_screen = nums[1L], y_screen = nums[2L],
+      x_gis    = nums[3L], y_gis    = nums[4L]
+    )
   }
 
   gi <- rbindlist(Filter(Negate(is.null), results))
   if (nrow(gi) == 0L) return(NULL)
 
   gi <- unique(gi, by = "label")
-  valid <- gi[x_gis > 0 & x_gis <= 800000 & y_gis > 0 & y_gis <= 1300000]
-  if (nrow(valid) == 0L) return(NULL)
 
-  valid[, .(label, chainage = 0, x = x_gis, y = y_gis)]
+  # Prefer GIS coordinates (real-world BNG)
+  valid_gis <- gi[x_gis > 0 & x_gis <= 800000 & y_gis > 0 & y_gis <= 1300000]
+  if (nrow(valid_gis) > 0L) {
+    return(valid_gis[, .(label, chainage = 0, x = x_gis, y = y_gis,
+                         coord_source = "gis")])
+  }
+
+  # Fall back to screen coordinates for un-georeferenced models
+  valid_screen <- gi[x_screen != 0 | y_screen != 0]
+  if (nrow(valid_screen) == 0L) return(NULL)
+  valid_screen[, .(label, chainage = 0, x = x_screen, y = y_screen,
+                   coord_source = "screen")]
 }
 
 # Legacy coordinate heuristic for older DAT formats that lack a GISINFO block.
@@ -176,12 +191,16 @@ parse_gxy <- function(path) {
 # DAT files are the main FMP network file.  Coordinates are extracted using
 # a two-strategy approach:
 #
-#   Strategy 1 (GISINFO block) — used whenever the file contains a GISINFO
-#   section.  Each entry has the form:
+#   Strategy 1a (GISINFO block, GIS coords) — used whenever the file contains
+#   a GISINFO section with non-zero x_gis / y_gis values.  Each entry has:
 #     <unit_keyword(s)> <label> <x_screen> <y_screen> <x_gis> <y_gis> <visible>
-#   x_gis / y_gis are the real-world BNG coordinates assigned in FMP.  If the
-#   model has not been georeferenced those fields are all zero and parsing fails
-#   with an informative error rather than silently returning garbage.
+#   x_gis / y_gis are the real-world BNG coordinates assigned in FMP.
+#   Output sf has CRS = EPSG:27700.
+#
+#   Strategy 1b (GISINFO block, screen coords) — fallback within GISINFO for
+#   models drawn in FMP but not yet georeferenced (all GIS fields zero).  Uses
+#   x_screen / y_screen (GUI pixel positions) for nodes where at least one is
+#   non-zero.  Output sf has CRS = NA; a warning is emitted.
 #
 #   Strategy 2 (legacy heuristic) — fallback for older DAT variants that pre-
 #   date the GISINFO block.  Treats the last two numeric tokens on qualifying
@@ -219,8 +238,8 @@ parse_dat <- function(path, as_lines = FALSE) {
     if (has_gisinfo) {
       cli_abort(c(
         "No coordinate records parsed from {.path {path}}.",
-        "i" = "The GISINFO block contains no valid BNG coordinates (all GIS fields are zero).",
-        "i" = "Georeference the model in Flood Modeller Pro and re-save, or use File > Export GXY."
+        "i" = "The GISINFO block has no GIS coordinates and no schematic screen positions.",
+        "i" = "Rebuild the model schematic in Flood Modeller Pro, or use File > Export GXY."
       ))
     }
     cli_abort(
@@ -228,9 +247,20 @@ parse_dat <- function(path, as_lines = FALSE) {
     )
   }
 
+  # Determine CRS: BNG when GIS coordinates are available; NA for screen coords.
+  use_crs <- .bng
+  if ("coord_source" %in% names(dt) && any(dt$coord_source == "screen")) {
+    use_crs <- NA_integer_
+    cli_warn(c(
+      "!" = "DAT has no GIS coordinates; using schematic screen positions instead.",
+      "i" = "Geometry will have no CRS. Georeference the model in Flood Modeller Pro for BNG output."
+    ))
+  }
+
   # Remove duplicate label+chainage combinations (DAT can repeat headers)
   dt <- unique(dt, by = c("label", "chainage"))
   setorder(dt, label, chainage)
+  if ("coord_source" %in% names(dt)) dt[, coord_source := NULL]
 
   cli_inform("Parsed {nrow(dt)} node(s) from DAT.")
 
@@ -240,7 +270,7 @@ parse_dat <- function(path, as_lines = FALSE) {
       geometry = st_sfc(
         mapply(function(ex, ey) st_point(c(ex, ey)),
                dt$x, dt$y, SIMPLIFY = FALSE),
-        crs = .bng
+        crs = use_crs
       )
     )
     return(out)
@@ -269,7 +299,7 @@ parse_dat <- function(path, as_lines = FALSE) {
 
   out <- st_sf(
     reach_id = group_ids,
-    geometry = st_sfc(geoms, crs = .bng)
+    geometry = st_sfc(geoms, crs = use_crs)
   )
 
   cli_inform("Connected nodes into {nrow(out)} reach line(s).")
