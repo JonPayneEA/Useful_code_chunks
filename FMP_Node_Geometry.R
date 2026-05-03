@@ -26,6 +26,63 @@ library(cli)
   lines
 }
 
+# Parse the GISINFO block present in standard FMP DAT files.
+# Each entry has the form:
+#   <unit_keyword(s)> <label> <x_screen> <y_screen> <x_gis> <y_gis> <visible>
+# The label is always the token immediately before the 5 trailing numeric fields.
+# Returns data.table(label, chainage, x, y) with BNG GIS coordinates, or NULL
+# when the block is absent or all GIS coordinate fields are zero.
+.extract_gisinfo_coords <- function(lines) {
+  gi_start <- which(toupper(trimws(lines)) == "GISINFO")
+  if (length(gi_start) == 0L) return(NULL)
+
+  gi_lines <- lines[(gi_start[1L] + 1L):length(lines)]
+  if (length(gi_lines) == 0L) return(NULL)
+
+  results <- vector("list", length(gi_lines))
+  for (i in seq_along(gi_lines)) {
+    tokens <- strsplit(gi_lines[[i]], "\\s+")[[1L]]
+    if (length(tokens) < 6L) next
+    nums <- suppressWarnings(as.numeric(tail(tokens, 5L)))
+    if (anyNA(nums)) next
+    label <- tokens[length(tokens) - 5L]
+    results[[i]] <- data.table(label = label, x_gis = nums[3L], y_gis = nums[4L])
+  }
+
+  gi <- rbindlist(Filter(Negate(is.null), results))
+  if (nrow(gi) == 0L) return(NULL)
+
+  gi <- unique(gi, by = "label")
+  valid <- gi[x_gis > 0 & x_gis <= 800000 & y_gis > 0 & y_gis <= 1300000]
+  if (nrow(valid) == 0L) return(NULL)
+
+  valid[, .(label, chainage = 0, x = x_gis, y = y_gis)]
+}
+
+# Legacy coordinate heuristic for older DAT formats that lack a GISINFO block.
+# Treats the last two numeric tokens on any line as BNG easting/northing.
+.extract_legacy_coords <- function(lines) {
+  coord_pattern <- "^(\\S+)\\s+(.*)"
+  results <- lapply(lines, function(ln) {
+    if (!grepl(coord_pattern, ln)) return(NULL)
+    label  <- sub(coord_pattern, "\\1", ln)
+    rest   <- sub(coord_pattern, "\\2", ln)
+    tokens <- suppressWarnings(as.numeric(strsplit(trimws(rest), "\\s+")[[1L]]))
+    tokens <- tokens[!is.na(tokens)]
+    if (length(tokens) < 3L) return(NULL)
+    x <- tokens[length(tokens) - 1L]
+    y <- tokens[length(tokens)]
+    if (is.na(x) || is.na(y))     return(NULL)
+    if (x < 0    || x > 800000)   return(NULL)
+    if (y < 0    || y > 1300000)  return(NULL)
+    if (x < 1000 && y < 1000)     return(NULL)
+    data.table(label = label, chainage = tokens[1L], x = x, y = y)
+  })
+  dt <- rbindlist(Filter(Negate(is.null), results))
+  if (nrow(dt) == 0L) return(NULL)
+  dt
+}
+
 
 # ---------------------------------------------------------------------------
 # parse_gxy()
@@ -116,32 +173,29 @@ parse_gxy <- function(path) {
 # parse_dat()
 # ---------------------------------------------------------------------------
 #
-# DAT files are the main FMP network file. They contain many section types.
-# This parser targets SECTION and NODE records that carry X/Y coordinates.
+# DAT files are the main FMP network file.  Coordinates are extracted using
+# a two-strategy approach:
 #
-# FMP 1D DAT coordinate format:
-#   Section header lines start with a label in columns 1-12 followed by
-#   chainage, then X and Y as the last two numeric fields on the line.
-#   The exact column layout varies by FMP version, so we use a
-#   position-tolerant regex rather than fixed-width parsing.
+#   Strategy 1 (GISINFO block) — used whenever the file contains a GISINFO
+#   section.  Each entry has the form:
+#     <unit_keyword(s)> <label> <x_screen> <y_screen> <x_gis> <y_gis> <visible>
+#   x_gis / y_gis are the real-world BNG coordinates assigned in FMP.  If the
+#   model has not been georeferenced those fields are all zero and parsing fails
+#   with an informative error rather than silently returning garbage.
 #
-# Specifically, lines that define a cross-section or interpolated section
-# begin with a non-whitespace label and contain at least 4 numeric tokens.
-# The convention is:
-#   <label>  <chainage>  ...  <X>  <Y>
-# where X and Y are the last two numeric values on the line.
-#
-# This is a best-effort parser. Some DAT variants (esp. 2D links, structures)
-# do not follow this layout and are skipped.
+#   Strategy 2 (legacy heuristic) — fallback for older DAT variants that pre-
+#   date the GISINFO block.  Treats the last two numeric tokens on qualifying
+#   lines as BNG easting / northing.  Only attempted when no GISINFO block is
+#   found.
 #
 # Returns an sf data frame with columns:
 #   label     (character)  -- section label
-#   chainage  (numeric)
+#   chainage  (numeric)    -- 0 when derived from GISINFO
 #   x, y      (numeric)    -- BNG easting / northing
 #   geometry  (POINT, EPSG:27700)
 #
-# If as_lines = TRUE, nodes are connected into LINESTRING per reach using
-# label prefix heuristics (labels like "REACH1_001", "REACH1_002" are
+# If as_lines = TRUE nodes are connected into LINESTRING per reach using
+# label-prefix heuristics (labels like "REACH1_001", "REACH1_002" are
 # grouped by the prefix before the last "_" or numeric suffix).
 
 parse_dat <- function(path, as_lines = FALSE) {
@@ -151,42 +205,27 @@ parse_dat <- function(path, as_lines = FALSE) {
   raw   <- readLines(path, warn = FALSE)
   lines <- .clean_lines(raw)
 
-  # Regex: line starts with a non-space label, followed by >= 3 numeric tokens
-  # Capture label, then extract all numeric tokens from the line.
-  # We keep only lines where the last two tokens look like plausible BNG
-  # coordinates (easting 100000-700000, northing 0-1300000).
+  # Strategy 1: GISINFO block — present in all standard FMP DAT files.
+  # Each entry records x_gis / y_gis (BNG) alongside GUI screen coords.
+  has_gisinfo <- any(toupper(trimws(lines)) == "GISINFO")
+  dt <- .extract_gisinfo_coords(lines)
 
-  coord_pattern <- "^(\\S+)\\s+(.*)"
+  # Strategy 2: legacy heuristic for older DAT formats that lack GISINFO.
+  if (is.null(dt) && !has_gisinfo) {
+    dt <- .extract_legacy_coords(lines)
+  }
 
-  results <- lapply(lines, function(ln) {
-    if (!grepl(coord_pattern, ln)) return(NULL)
-
-    label  <- sub(coord_pattern, "\\1", ln)
-    rest   <- sub(coord_pattern, "\\2", ln)
-    tokens <- suppressWarnings(as.numeric(strsplit(trimws(rest), "\\s+")[[1L]]))
-    tokens <- tokens[!is.na(tokens)]
-
-    if (length(tokens) < 3L) return(NULL)
-
-    x <- tokens[length(tokens) - 1L]
-    y <- tokens[length(tokens)]
-
-    # Rough BNG bounds check
-    if (is.na(x) || is.na(y))          return(NULL)
-    if (x < 0 || x > 800000)           return(NULL)
-    if (y < 0 || y > 1300000)          return(NULL)
-    # Reject obviously wrong values (e.g. chainage parsed as coordinate)
-    if (x < 1000 && y < 1000)          return(NULL)
-
-    chainage <- tokens[1L]
-
-    data.table(label = label, chainage = chainage, x = x, y = y)
-  })
-
-  dt <- rbindlist(Filter(Negate(is.null), results))
-
-  if (nrow(dt) == 0L) {
-    cli_abort("No coordinate records parsed from {.path {path}}. The DAT may use an unsupported format.")
+  if (is.null(dt) || nrow(dt) == 0L) {
+    if (has_gisinfo) {
+      cli_abort(c(
+        "No coordinate records parsed from {.path {path}}.",
+        "i" = "The GISINFO block contains no valid BNG coordinates (all GIS fields are zero).",
+        "i" = "Georeference the model in Flood Modeller Pro and re-save, or use File > Export GXY."
+      ))
+    }
+    cli_abort(
+      "No coordinate records parsed from {.path {path}}. The DAT may use an unsupported format."
+    )
   }
 
   # Remove duplicate label+chainage combinations (DAT can repeat headers)
