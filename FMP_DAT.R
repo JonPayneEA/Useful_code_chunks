@@ -232,7 +232,7 @@ library(ggplot2)
   ds_label <- if (nchar(lines[3L]) > n) .lbl(substr(lines[3L], n + 1L, nchar(lines[3L])), n) else NA_character_
 
   aligned_i <- which(toupper(trimws(lines)) == "ALIGNED")[1L]
-  open_dt   <- data.table(x = numeric(), z = numeric(), width = numeric())
+  open_dt   <- data.table(x = numeric(), soffit = numeric(), deck = numeric())
 
   if (!is.na(aligned_i) && aligned_i + 1L <= length(lines)) {
     n_open <- .to_int(.toks(lines[aligned_i + 1L])[1L])
@@ -242,7 +242,8 @@ library(ggplot2)
         v[1:3]
       })
       m       <- do.call(rbind, rows)
-      open_dt <- data.table(x = m[, 1L], z = m[, 2L], width = m[, 3L])
+      # cols: x offset | soffit elevation | deck (road) elevation
+      open_dt <- data.table(x = m[, 1L], soffit = m[, 2L], deck = m[, 3L])
     }
   }
 
@@ -707,7 +708,7 @@ DAT <- R6Class(
         theme_minimal(base_size = 12)
     },
 
-    #' Bridge opening geometry.
+    #' Bridge cross-section: soffit, deck, and adjacent river cross-section.
     plot_bridge = function(label) {
       u <- self$structures[[label]]
       if (is.null(u))
@@ -716,12 +717,81 @@ DAT <- R6Class(
       if (is.null(op) || nrow(op) == 0L)
         stop("No opening geometry for this unit.", call. = FALSE)
 
-      ggplot(op, aes(x = x, y = z)) +
-        geom_path(colour = "saddlebrown", linewidth = 1.1) +
-        geom_point(colour = "saddlebrown", size = 2) +
-        labs(title = sprintf("Bridge opening: %s", label),
-             x = "Horizontal offset (m)", y = "Elevation (mAOD)") +
-        theme_minimal(base_size = 12)
+      x_vals  <- op$x
+      soffit  <- op$soffit
+
+      # deck col: use parsed value when it is consistently above the soffit,
+      # otherwise fall back to a 1.5 m headroom above the highest abutment.
+      deck_raw <- op$deck
+      use_deck <- !all(is.na(deck_raw)) && all(deck_raw >= soffit - 0.01, na.rm = TRUE)
+      deck <- if (use_deck) deck_raw else rep(max(soffit, na.rm = TRUE) + 1.5, length(x_vals))
+
+      # Look for the nearest adjacent RIVER SECTION to show as channel context.
+      adj <- private$.find_adjacent_section(u)
+
+      p <- ggplot()
+
+      # Layer 1: adjacent cross-section (grey fill = earthwork, line = bed)
+      if (!is.null(adj)) {
+        xs  <- adj$data$cross_section
+        # Centre-align the cross-section x range to the bridge x range
+        xs_c   <- mean(range(xs$offset))
+        br_c   <- mean(range(x_vals))
+        xs_adj <- data.table(x = xs$offset - xs_c + br_c, y = xs$elevation)
+        y_min  <- min(soffit, na.rm = TRUE) - 2.0
+        p <- p +
+          geom_ribbon(data = xs_adj,
+                      aes(x = x, ymin = y_min, ymax = y),
+                      fill = "#c8a96e", alpha = 0.45) +
+          geom_line(data = xs_adj, aes(x = x, y = y),
+                    colour = "#7a5c2e", linewidth = 0.8) +
+          annotate("text",
+                   x    = min(xs_adj$x),
+                   y    = xs_adj$y[which.min(xs_adj$x)] + 0.15,
+                   label = paste("XS:", adj$name),
+                   hjust = 0, size = 3, colour = "#7a5c2e")
+      }
+
+      # Layer 2: bridge deck polygon (solid structure between soffit and deck)
+      deck_poly <- data.table(
+        x = c(x_vals,       rev(x_vals)),
+        y = c(soffit,       rev(deck))
+      )
+      p <- p +
+        geom_polygon(data = deck_poly, aes(x = x, y = y),
+                     fill = "grey55", colour = "grey25", linewidth = 0.8)
+
+      # Layer 3: soffit line (underside of bridge / clearance limit)
+      p <- p +
+        geom_line(data = data.table(x = x_vals, y = soffit),
+                  aes(x = x, y = y),
+                  colour = "black", linewidth = 0.6, linetype = "dashed") +
+        annotate("text",
+                 x     = mean(range(x_vals)),
+                 y     = min(soffit, na.rm = TRUE) - 0.15,
+                 label = sprintf("Soffit: %.2f mAOD", min(soffit, na.rm = TRUE)),
+                 vjust = 1, size = 3.2, colour = "black")
+
+      # Layer 4: deck top line + label
+      p <- p +
+        geom_line(data = data.table(x = x_vals, y = deck),
+                  aes(x = x, y = y),
+                  colour = "grey20", linewidth = 0.7) +
+        annotate("text",
+                 x     = max(x_vals),
+                 y     = mean(deck, na.rm = TRUE),
+                 label = sprintf("Deck: %.2f mAOD", mean(deck, na.rm = TRUE)),
+                 hjust = -0.05, size = 3.2, colour = "grey20")
+
+      ds <- if (!is.null(u$ds_label) && !is.na(u$ds_label))
+              sprintf(" → %s", u$ds_label) else ""
+      p +
+        labs(title = sprintf("Bridge: %s%s", label, ds),
+             x     = "Horizontal offset (m)",
+             y     = "Elevation (mAOD)") +
+        theme_minimal(base_size = 12) +
+        coord_cartesian(clip = "off") +
+        theme(plot.margin = margin(5, 40, 5, 5))
     },
 
     #' Schematic 1D network — all units plotted at their chainage position.
@@ -1038,6 +1108,21 @@ DAT <- R6Class(
       if (length(matches) == 0L) return(NULL)
       if (length(matches) == 1L) return(matches[[1L]])
       matches
+    },
+
+    # ---- Bridge helper: nearest adjacent RIVER SECTION --------------
+    .find_adjacent_section = function(bridge_unit) {
+      idx <- Position(function(u) identical(u, bridge_unit), private$.all_units)
+      if (is.null(idx)) return(NULL)
+      for (delta in c(-1L, 1L, -2L, 2L, -3L, 3L)) {
+        i <- idx + delta
+        if (i < 1L || i > length(private$.all_units)) next
+        u <- private$.all_units[[i]]
+        if (u$unit == "RIVER" &&
+            !is.null(u$data$cross_section) &&
+            nrow(u$data$cross_section) > 0L) return(u)
+      }
+      NULL
     },
 
     # ---- Group helpers ---------------------------------------------
