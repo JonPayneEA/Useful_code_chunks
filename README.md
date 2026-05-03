@@ -51,9 +51,10 @@ dat$boundaries[["INFLOW"]]$data$time_series
 
 # Access a bridge's opening geometry
 dat$structures[["BRIDU"]]$data$opening
-#>       x     z width
-#>  1:  0.0  3.5   8.0
-#>  2:  8.0  3.5   8.0
+#>       x  soffit    deck
+#>  1: -3.0     3.9     5.2
+#>  2:  0.0     3.3     5.2
+#>  3:  3.0     3.9     5.2
 ```
 
 #### Model metadata
