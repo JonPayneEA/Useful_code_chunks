@@ -305,4 +305,56 @@ Archiver for the Environment Agency (EA) Real-Time flood monitoring API (open, n
 
 ---
 
+### water_units.R
+Water volume conversion and contextualisation utilities for UK hydrology and water resources work. Converts any volume to all reference units spanning SI, domestic, agricultural, apothecary, regional informal, and planetary scales. Includes a UK reservoir database, plain-English magnitude descriptions for report writing, and a rainfall-to-volume calculator with runoff coefficient. UK-focused throughout: apothecary values are UK; reservoir capacities are from published WRMPs and EA/Ofwat records.
+
+#### Reference data
+
+- **`input_unit_factors`:** Named vector of conversion factors to m³ — `m3`, `litre`, `megalitre`, `gigalitre`, `km3`, `acre_foot`, `fluid_oz_uk`, `ml`
+- **`unit_reference`:** `data.table` of 18 named volumes across SI, Domestic, Agricultural, Apothecary, Regional informal, and Planetary categories, with `cubic_metres`, `flux`, and `plural` columns
+- **`uk_reservoirs`:** `data.table` of 10 UK reservoirs (Kielder to Bewl Water) with gross capacity in GL, region, and primary use; `capacity_m3` column added on load
+
+#### Functions
+
+- **`format_equivalent(x)`:** Formats numeric equivalents for display — scientific notation below 0.01, fixed 3-significant-figure form for 0.01–999, scientific above 999
+- **`make_water_table(value, unit)`:** Converts a volume to all reference units; returns `list($volumes, $flux)` — two `data.table`s with `display_name`, `category`, `cubic_metres`, `equivalent`, `equivalent_fmt`, `input`, `plural`
+- **`nearest_units(value, unit, n = 3)`:** Finds the N closest reference units by log-space distance, excluding SI and Apothecary; returns a plain-English string ready for briefing text
+- **`nearest_units_from_result(result, n = 3)`:** Convenience wrapper that calls `nearest_units()` directly from a `rainfall_volume()` result
+- **`rainfall_volume(rainfall_mm, area_km2, runoff_coefficient = 1)`:** Computes gross (or net) rainfall volume; uses the exact identity 1 mm × 1 km² = 1 ML; returns `make_water_table()` output plus `$summary` data.table
+- **`reservoir_fill(volume_m3, reservoirs = "all", threshold = 1)`:** Expresses a volume as fill fractions of UK reservoirs; returns `list($partial, $overfill)` with plain-English descriptions
+
+#### Quick start
+
+```r
+source("water_units.R")
+
+# Full unit comparison table for 1 GL
+result <- make_water_table(1, "gigalitre")
+result$volumes[, .(display_name, equivalent_fmt)]
+
+# Plain-English magnitude for a 124 ML event
+nearest_units(124, "megalitre")
+#> "124 megalitre is approximately equivalent to:
+#>  1.00 Rutland Waters, 0.395 Lake Windermeres, 49.6 Olympic swimming pools."
+
+# Rainfall volume: 80 mm over 8,500 km² catchment
+result <- rainfall_volume(80, 8500)
+result$summary
+#>    rainfall_mm area_km2 runoff_coefficient volume_m3 volume_GL
+#>             80     8500                  1   6.8e+08       680
+
+nearest_units_from_result(result)
+#> "680 gigalitre is approximately equivalent to:
+#>  1.36 Sydharbs, 2.17 Lake Windermeres, 5.48 Rutland Waters."
+
+# Express the same volume as UK reservoir fill fractions
+fill <- reservoir_fill(result$summary$volume_m3)
+fill$partial    # reservoirs partially filled (ascending by fill %)
+fill$overfill   # reservoirs exceeded (descending by times over capacity)
+```
+
+**Dependencies:** `data.table`
+
+---
+
 Feel free to contribute and add more snippets or improve the existing ones!
